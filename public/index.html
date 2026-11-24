@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>披薩大亨｜黃金切片</title>
+<style>*{box-sizing:border-box}body{margin:7vh auto;padding:24px;max-width:640px;background:#f9f2e4;color:#263d35;font:18px/1.65 system-ui}h1{color:#b54d34}button,input{font:inherit;padding:9px 15px;border:1px solid #958d77;border-radius:8px;margin:5px 4px 5px 0}button{background:#244c42;color:white;cursor:pointer}section{background:white;padding:22px;border-radius:16px}small{color:#6a6559}</style>
+<small>GOLDEN SLICE PIZZERIA</small><h1>披薩大亨・黃金切片</h1><section id="entry"><h2>教室連線大廳</h2><button id="host">老師開房</button><hr><input id="code" placeholder="六位房間代碼" maxlength="6"><input id="name" placeholder="廚師暱稱" maxlength="14"><button id="join">學生加入</button></section><section id="room" hidden><h2 id="title"></h2><p id="players"></p><button id="ready">我準備好了</button></section><p id="status" role="status"></p>
+<script type="module">
+const el=id=>document.getElementById(id), ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/play');
+let me;function send(m){if(ws.readyState===1)ws.send(JSON.stringify({...m,nonce:crypto.randomUUID()}))}
+el('host').onclick=()=>send({op:'create'});el('join').onclick=()=>send({op:'join',name:el('name').value,code:el('code').value});el('ready').onclick=()=>send({op:'ready'});
+ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='error')el('status').textContent=m.message;if(m.type==='session'){me=m.id;el('entry').hidden=true;el('room').hidden=false;el('title').textContent='房間 '+m.code;el('ready').hidden=me==='host'}if(m.type==='state')el('players').textContent=m.state.players.map(p=>p.name+(p.ready?' ✓':'')).join('、')||'等待廚師加入'};ws.onclose=()=>el('status').textContent='連線已中斷，請重新整理。';
+</script></html>
