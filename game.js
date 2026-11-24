@@ -10,6 +10,8 @@ import {
   near,
   eventPoint,
 } from './public/world.js'
+import { eligible, availableMath, roleFor } from './public/brigade.js'
+import { motions, checkTrace, motionOptions } from './public/gestures.js'
 import { makeTask, pick, fractions, geometry, correct, guidance } from './math.js'
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const secret = () => randomBytes(20).toString('hex')
@@ -72,6 +74,7 @@ export function addPlayer(r, name, skin) {
     id: randomUUID(),
     token: secret(),
     name,
+    lane: r.players.length,
     skin: clamp(Math.floor(Number(skin) || 0), 0, 5),
     x: -2 + r.players.length,
     z: -0.75,
@@ -167,6 +170,8 @@ export function newOrder(r, gold = false) {
     kits: 0,
     kitNeed: count(r) >= 3 ? 2 : 1,
     press: 0,
+    leads: {},
+    preheated: false,
     bakeStart: null,
     quality: '',
     tasks: [],
@@ -227,6 +232,8 @@ export function newOrder(r, gold = false) {
     o.vip = id % 2 === 0
     if (id % 5 === 0) o.creative = true
   }
+  if (!gold && online(r).length === 4 && id === 1 && o.tasks[0]?.station === 'cut')
+    o.tasks[0].owner = online(r).find((p) => roleFor(o, r.players, p.id) === 3).id
   r.orders.push(o)
   fx(r, 'arrival', { order: id })
   return o
@@ -234,10 +241,7 @@ export function newOrder(r, gold = false) {
 export function disconnect(r, p) {
   p.online = false
   p.studying = null
-  if (p.cargo && r.event?.kind === 'delivery') {
-    r.event.step = Math.max(0, r.event.step - 1)
-    p.cargo = false
-  }
+  p.cargo = false
   p.move = [0, 0]
   p.path = []
   if (p.hand) drop(r, p)
@@ -318,11 +322,16 @@ function upgrade(r, p, id) {
   announce(r, '店鋪升級了！' + row[1])
 }
 const makeEvent = (kind, r) => {
-  kind = kind || pick(['mouse', 'delivery', 'leak', 'repair', 'duel'])
+  kind =
+    kind || pick(['mouse', 'delivery', 'leak', 'repair', 'duel'].filter((v) => v !== r.lastEvent))
+  r.lastEvent = kind
   return {
     kind,
     step: 0,
-    need: kind === 'delivery' ? 2 * Math.ceil(count(r) / 2) : Math.max(2, count(r)),
+    need: Math.max(2, count(r)),
+    crewGoal: count(r),
+    contributions: {},
+    lastBy: {},
     start: r.t,
     until: r.t + 55,
     sequence: [0, 1, 2].sort(() => Math.random() - 0.5),
@@ -331,30 +340,37 @@ const makeEvent = (kind, r) => {
 }
 function playEvent(r, p, m) {
   const e = r.event
-  need(e && near(p, eventPoint(e, r.t)), '先靠近事件圖示。')
-  need(r.t - e.last > 0.28, '再等一下。')
-  if (e.kind === 'delivery') {
-    if (e.step % 2) {
-      need(p.cargo, '請讓拿補貨箱的廚師送到冰箱旁。')
-      p.cargo = false
-    } else {
-      need(!p.hand, '先放下手中物品，再搬補貨箱。')
-      p.cargo = true
-    }
+  need(e && near(p, eventPoint(e, r.t, p)), '請前往你負責的事件位置。')
+  need(m.eventId === e.start, '這場事件已結束。')
+  need(r.t - (e.lastBy[p.id] ?? -2) > 0.22, '稍候再接下一棒。')
+  const required = Math.min(e.crewGoal, count(r)),
+    others = online(r).filter((c) => !e.contributions[c.id])
+  if (e.contributions[p.id] && others.length && Object.keys(e.contributions).length < required)
+    throw Error('隊友還有一棒：' + others.map((c) => c.name).join('、'))
+  if (e.kind === 'repair') need(m.value === e.sequence[p.skin % 3], '請接到自己燈號對應的插座。')
+  if (e.kind === 'delivery' && !p.cargo) {
+    need(!p.hand, '請先放下手上物品。')
+    p.cargo = true
+    e.lastBy[p.id] = r.t
+    action(p, r, '搬運')
+    return
   }
-  if (e.kind === 'repair') need(m.value === e.sequence[e.step % 3], '照亮燈的順序按開關。')
-  if (e.kind === 'duel') need((Math.sin(r.t * 3) + 1) / 2 > 0.55, '等游標進入金色區再壓。')
-  e.last = r.t
+  p.cargo = false
+  e.lastBy[p.id] = r.t
+  e.contributions[p.id] = (e.contributions[p.id] || 0) + 1
   e.step++
-  action(p, r, e.kind === 'leak' ? '清潔' : '救援')
+  action(p, r, motions[e.kind][0])
   p.stats.events++
   fx(r, 'rescue', { who: p.id })
-  if (e.step >= e.need) {
+  const target = Math.max(2, required)
+  if (e.step >= target && Object.keys(e.contributions).length >= required) {
     r.finishedEvents++
     r.money += 18
     r.stock = Math.min(r.stock + 3, stockCap(r))
     r.event = null
-    announce(r, '合作成功！獲得 18 枚獎金與補給。')
+    r.players.forEach((p) => (p.cargo = false))
+    fx(r, 'rescued', { who: p.id })
+    announce(r, '全隊救援成功！獲得 18 枚獎金與補給。')
   }
 }
 function stockCap(r) {
@@ -410,6 +426,15 @@ function teacher(r, m) {
       need(r.status === 'playing', '請先開始營業。')
       startGold(r)
       return
+    case 'coach': {
+      const target = r.players.find((p) => p.id === m.who),
+        message = String(m.value || '')
+          .trim()
+          .slice(0, 120)
+      need(target && message, '請選擇學生並輸入指引。')
+      target.coach = { id: (target.coach?.id || 0) + 1, message }
+      return
+    }
     case 'tip':
       announce(r, '老師提示：先看訂單的已知條件，找到半徑與整圓比例，再分工操作。')
       return
@@ -482,18 +507,74 @@ function complete(r, p, o) {
 }
 export function command(r, p, m) {
   if (!p) return teacher(r, m)
+  if (m.op === 'view') {
+    const v = m.view || {},
+      text = (k, n = 64) => String(v[k] ?? '').slice(0, n)
+    const view = {
+      page: text('page', 24),
+      station: stations[v.station] ? v.station : '',
+      order: Number(v.order) || 0,
+      task: text('task', 48),
+      heading: text('heading', 100),
+      draft: text('draft', 64),
+      feedback: text('feedback', 180),
+      controls: text('controls', 180),
+      tool: motions[v.tool] ? v.tool : '',
+      step: Math.min(10, Math.max(0, +v.step || 0)),
+      pointer: Array.isArray(v.pointer)
+        ? v.pointer.slice(0, 2).map((x) => clamp(Number(x) || 0, 0, 1))
+        : null,
+      angle: clamp(+v.angle || 0, 0, 360),
+      rotation: clamp(+v.rotation || 0, 0, 720),
+      radius: clamp(+v.radius || 0, 0, 20),
+      options: text('options', 100),
+    }
+    const key = JSON.stringify(view)
+    if (key !== p.viewKey) {
+      p.view = view
+      p.viewKey = key
+      p.viewAt = r.t
+    }
+    if (r.status === 'playing' && view.tool) {
+      p.action = motions[view.tool][0]
+      p.animUntil = r.t + 0.6
+    }
+    return
+  }
   if (m.op === 'ready') {
     need(r.status === 'lobby', '已開始營業。')
     p.ready = !p.ready
     return
   }
   need(r.status === 'playing', '目前不在營業中。')
+  const ticket = r.orders.find((o) => o.id === m.order)
+  const motion = m.op === 'event' ? r.event?.kind : m.op
+  if (motions[motion])
+    need(
+      checkTrace(motion, m.trace, motionOptions(m.op, ticket, m.value)),
+      '請從起點按住工具，沿標記操作到終點。',
+    )
+  if (['knead', 'top', 'bake', 'cut'].includes(m.op) && ticket) {
+    const cooks = eligible(ticket, r.players, m.op)
+    need(
+      cooks.some((c) => c.id === p.id),
+      '這一棒請交給 ' + cooks.map((c) => c.name).join('、') + '。',
+    )
+  }
+  if (m.op === 'preheat') {
+    at(p, 'oven')
+    need(ticket && ticket.stage <= 3 && !ticket.preheated, '這張訂單已經預熱。')
+    ticket.preheated = true
+    action(p, r, '預熱')
+    fx(r, 'ignite', { where: 'oven' })
+    return
+  }
   if (m.op === 'study') {
     p.studying = null
     if (!m.task) return
     const o = r.orders.find((o) => o.id === m.order),
       q = o?.tasks.find(
-        (q) => q.id === m.task && q.owner === p.id && !q.done && q.station === stationFor[o.stage],
+        (q) => q.id === m.task && q.owner === p.id && availableMath(o, q, count(r) > 1),
       )
     if (q && near(p, stations[q.station])) p.studying = { task: q.id, until: r.t + 25 }
     return
@@ -569,11 +650,11 @@ export function command(r, p, m) {
     return
   }
   const station = stationFor[o.stage]
-  at(p, station)
   if (['answer', 'hint'].includes(m.op)) {
     need(!o.creative || o.label, '請先設計本單配方。')
-    const q = taskAt(o, station).find((q) => q.id === m.task)
+    const q = o.tasks.find((q) => q.id === m.task && availableMath(o, q, count(r) > 1))
     need(q, '題目已完成或已更換。')
+    at(p, q.station)
     rebalance(r)
     need(q.owner === p.id, '輪到其他夥伴操作。')
     if (m.op === 'hint') {
@@ -585,6 +666,7 @@ export function command(r, p, m) {
     }
     return record(r, p, q, m.value)
   }
+  at(p, station)
   if (m.op === 'design') {
     need(o.creative && !o.label && o.stage === 1, '目前沒有自由創作訂單。')
     const radius = Number(m.radius),
@@ -614,7 +696,7 @@ export function command(r, p, m) {
   }
   if (m.op === 'place') {
     need(
-      [1, 2, 5].includes(o.stage) && p.hand?.id === o.id && p.hand.type === o.item.type,
+      [1, 2, 3, 5].includes(o.stage) && p.hand?.id === o.id && p.hand.type === o.item.type,
       '請帶來正確的物品。',
     )
     put(p, o.item, station)
@@ -626,6 +708,7 @@ export function command(r, p, m) {
     need(!taskAt(o, station).length, '先完成本桌的學習任務。')
     need(!o.creative || o.label, '先設計本單的招牌配方。')
     need(Math.abs(Number(m.radius) - o.r) < 0.01, '調整半徑，讓餅皮符合訂單尺寸。')
+    o.leads.knead = p.id
     o.press++
     action(p, r, '揉麵')
     if (o.press >= 3) produce(r, p, o, 'base', 2, 'dough')
@@ -638,6 +721,7 @@ export function command(r, p, m) {
       o.gold ? m.value === o.goldFlavors[o.ingredients.length] : m.value === o.flavor,
       '請依訂單選擇口味。',
     )
+    o.leads.top = p.id
     o.ingredientsPlaced = (o.ingredientsPlaced || 0) + 1
     if (o.gold) o.ingredients.push(flavors[m.value])
     action(p, r, '加料')
@@ -646,7 +730,8 @@ export function command(r, p, m) {
   }
   if (m.op === 'bake') {
     need(
-      o.stage === 3 && p.hand?.id === o.id && p.hand.type === 'raw',
+      o.stage === 3 &&
+        ((p.hand?.id === o.id && p.hand.type === 'raw') || (!p.hand && o.item.loc === 'oven')),
       '把已完成配料的披薩帶進石窯。',
     )
     need(
@@ -654,6 +739,8 @@ export function command(r, p, m) {
       '石窯已有披薩。',
     )
     need(r.event?.kind !== 'repair', '先修復石窯或等維修員抵達。')
+    need(ticket.preheated || count(r) === 1, '可請隊友先到石窯旋轉溫控鈕預熱。')
+    o.leads.bake = p.id
     put(p, o.item, 'oven')
     o.stage = 4
     o.bakeStart = r.t
@@ -679,6 +766,7 @@ export function command(r, p, m) {
     const f = o.gold ? o.sectors[o.cutIndex] : o.f
     const deg = geometry(o.r, f).angle
     need(Math.abs(Number(m.value) - deg) < 0.51, '切線尚未對準，從起始線順時針量角。')
+    o.leads.cut = p.id
     o.cuts.push(deg)
     o.cutIndex++
     action(p, r, '切割')
@@ -709,7 +797,8 @@ export function tick(r, dt) {
     r.status = 'ended'
     return
   }
-  if (r.golden === '等待中' && r.limit - r.t <= Math.min(150, r.limit * 0.2)) startGold(r)
+  if (r.golden === '等待中' && r.limit - r.t <= Math.min(count(r) > 2 ? 240 : 180, r.limit * 0.22))
+    startGold(r)
   if (r.orders.filter((o) => !o.gold).length < cap(r) && r.t >= r.nextOrder) {
     newOrder(r)
     r.nextOrder = r.t + 6 / r.settings.pace
@@ -723,6 +812,7 @@ export function tick(r, dt) {
     r.event = null
     announce(r, '廚房恢復正常，繼續出餐！')
   }
+  if (r.event) r.event.need = Math.max(2, Math.min(r.event.crewGoal, count(r)))
   if (r.event) r.nextEvent = r.t + 65
   if (Math.floor(r.t / 12) !== Math.floor((r.t - dt) / 12))
     r.stock = Math.min(stockCap(r), r.stock + 1)
@@ -777,6 +867,7 @@ export function snapshot(r, viewer) {
       id: p.id,
       name: p.name,
       skin: p.skin,
+      lane: p.lane,
       x: +p.x.toFixed(3),
       z: +p.z.toFixed(3),
       heading: p.heading,
@@ -785,7 +876,10 @@ export function snapshot(r, viewer) {
       hand: p.hand,
       cargo: !!p.cargo,
       action: p.action,
-      ...(!viewer || viewer === p ? { stats: p.stats } : {}),
+      ...(!viewer
+        ? { view: p.view ?? null, viewAt: p.viewAt ?? 0, lastResult: p.lastResult ?? '' }
+        : {}),
+      ...(!viewer || viewer === p ? { stats: p.stats, coach: p.coach } : {}),
     })),
     orders: r.orders.map((o) => ({
       ...o,

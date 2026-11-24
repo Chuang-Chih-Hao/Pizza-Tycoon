@@ -93,7 +93,15 @@ test('teacher + four independent WebSockets share movement, race-safe items, pau
       }),
   )
   const same = randomUUID()
-  for (const c of crew.slice(0, 2)) c.send('flour', { order, nonce: same })
+  for (const c of crew.slice(0, 2))
+    c.send('flour', {
+      order,
+      nonce: same,
+      trace: [
+        [0.19, 0.56],
+        [0.79, 0.56],
+      ],
+    })
   const won = (
     await crew[3].wait(
       (m) => m.type === 'state' && m.state.players.some((p) => p.hand?.id === order),
@@ -101,7 +109,14 @@ test('teacher + four independent WebSockets share movement, race-safe items, pau
   ).state
   assert.equal(won.players.filter((p) => p.hand?.id === order).length, 1)
   const owner = crew.find((c) => won.players.some((p) => p.id === c.session.id && p.hand))
-  owner.send('flour', { order, nonce: same })
+  owner.send('flour', {
+    order,
+    nonce: same,
+    trace: [
+      [0.19, 0.56],
+      [0.79, 0.56],
+    ],
+  })
   owner.ws.terminate()
   const lost = (
     await teacher.wait((m) => m.type === 'state' && m.state.orders[0]?.item.loc === 'floor')

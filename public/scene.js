@@ -1,3 +1,4 @@
+import { EventEffects } from './eventfx.js'
 import * as T from 'three'
 import {
   group,
@@ -39,6 +40,7 @@ export class Kitchen {
     this.labels.className = 'labels'
     host.append(this.labels)
     this.world = new T.Scene()
+    this.eventFx = new EventEffects(this.world)
     this.camera = new T.OrthographicCamera(-8, 8, 5, -5, 0.1, 85)
     this.camera.position.set(11.3, 12.4, 16.4)
     this.camera.lookAt(0, 0.66, 0.25)
@@ -208,7 +210,31 @@ export class Kitchen {
     const station = stations[ev.where] || stations.serve
     const a = this.actors.get(ev.who)
     const pos = a?.g.position ?? station
-    if (!['right', 'sale', 'gold', 'upgrade', 'cut', 'rescue'].includes(ev.type)) return
+    if (
+      ![
+        'right',
+        'sale',
+        'gold',
+        'upgrade',
+        'cut',
+        'rescue',
+        'rescued',
+        'ignite',
+        'place',
+        'knead',
+        'top',
+        'bake',
+        'unbake',
+        'box',
+        'serve',
+        'flour',
+        'kit',
+        'pickup',
+        'addkit',
+        'drop',
+      ].includes(ev.type)
+    )
+      return
     const n = ev.type === 'gold' ? 35 : ev.type === 'sale' ? 12 : 6
     for (let i = 0; i < n; i++) {
       const g = group()
@@ -219,7 +245,18 @@ export class Kitchen {
         0,
         0.055 + Math.random() * 0.035,
         0.035,
-        ev.type === 'right' ? '#62ac84' : i % 3 ? '#f0b947' : '#e78042',
+        {
+          knead: '#f0ddb0',
+          flour: '#fff0ca',
+          bake: '#ed984a',
+          unbake: '#e8d3b3',
+          kit: '#87a764',
+          top: '#b75c3b',
+          addkit: '#e6a953',
+          box: '#ceac7a',
+          rescued: '#70b49c',
+          right: '#62ac84',
+        }[ev.type] || (i % 3 ? '#f0b947' : '#e78042'),
         undefined,
         8,
       )
@@ -456,14 +493,22 @@ export class Kitchen {
           this.customers.delete(id)
         }
       }
+    this.eventFx.update(
+      s?.status === 'playing' || s?.status === 'paused' ? s.event : null,
+      clock,
+      people,
+      this.me,
+      this.low,
+    )
     if (this.eventKind !== s?.event?.kind) {
       if (this.eventObj) disposeGroup(this.eventObj)
       this.eventObj = null
       this.eventKind = s?.event?.kind
       if (this.eventKind) {
         let g = group()
-        if (this.eventKind === 'mouse') g = mouse()
-        else if (this.eventKind === 'delivery') g = itemModel('crate')
+        if (this.eventKind === 'mouse') {
+          cyl(g, 0, 0.027, 0, 0.4, 0.023, '#d3b450')
+        } else if (this.eventKind === 'delivery') g = itemModel('crate')
         else if (this.eventKind === 'leak') {
           ball(g, 0, 0.02, 0, 0.75, 0.025, 0.49, '#5ebac2')
           ball(g, 0.49, 0.018, 0.27, 0.22, 0.019, 0.14, '#89d0cf')
@@ -477,7 +522,7 @@ export class Kitchen {
       }
     }
     if (this.eventObj) {
-      const e = eventPoint(s.event, clock)
+      const e = eventPoint(s.event, clock, people.find((p) => p.id === this.me) || people[0])
       this.eventObj.position.set(
         e.x,
         this.eventKind === 'repair' || this.eventKind === 'duel' ? 1.16 : 0.02,

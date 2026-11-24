@@ -56,11 +56,32 @@ def run(url, output):
         def command(name):
             return page.locator(f'[data-cmd="{name}"]')
 
+        def operate(action):
+            command(action).click()
+            canvas = page.locator("#gesture")
+            canvas.wait_for()
+            key = action.split(":")[0]
+            options = {"angle": angle, "rotation": order["rotation"]}
+            points = page.evaluate("""async ([key, options]) => {
+                const {gesturePath} = await import('/gestures.js')
+                return gesturePath(key, options)
+            }""", [key, options])
+            bounds = canvas.bounding_box()
+            def move(point):
+                page.mouse.move(bounds["x"] + bounds["width"] * point[0],
+                                bounds["y"] + bounds["height"] * point[1], steps=6)
+            move(points[0])
+            page.mouse.down()
+            for point in points[1:]:
+                move(point)
+            page.mouse.up()
+            canvas.wait_for(state="hidden")
+
         def work(action):
             if page.locator("#dialog").is_visible():
                 page.locator("#close").click()
             page.locator("#go").click()
-            command(action).click()
+            operate(action)
 
         page.goto(url)
         page.wait_for_selector("#heroScene canvas")
@@ -108,23 +129,23 @@ def run(url, output):
         work("place")
         page.locator("#radius").fill(str(order["r"]))
         for _ in range(3):
-            command("knead").click()
+            operate("knead")
         work("kit")
         work("addkit")
         work("pickup")
         work("place")
-        command(f'top:{order["flavor"]}').click()
+        operate(f'top:{order["flavor"]}')
         work("pickup")
         work("bake")
-        command("unbake").click()
+        operate("unbake")
         work("place")
         command("ans:圓心").click()
         page.locator("#degrees").fill(str(angle))
         screenshot("cutting.webp")
-        command("cut").click()
-        command("pickup").click()
+        operate("cut")
+        operate("pickup")
         work("box")
-        command("pickup").click()
+        operate("pickup")
         work("serve")
         page.wait_for_function("Number(document.querySelector('#sales').textContent.slice(1)) > 0")
 
@@ -136,6 +157,24 @@ def run(url, output):
         send(teacher, "gold")
         page.get_by_role("button", name="黃金拼盤", exact=False).first.wait_for()
         screenshot("kitchen.webp")
+        for width, height in [(1366, 768), (390, 844), (844, 390)]:
+            page.set_viewport_size({"width": width, "height": height})
+            page.wait_for_timeout(300)
+            layout = page.evaluate("""() => {
+                const rect = document.querySelector('.lower').getBoundingClientRect()
+                const canvas = document.querySelector('#gameScene canvas').getBoundingClientRect()
+                return [scrollY, rect.bottom, innerHeight, canvas.width, canvas.height, document.documentElement.scrollWidth, innerWidth]
+            }""")
+            assert layout[0] == 0 and layout[1] <= layout[2] + 1, layout
+            assert layout[3] > 100 and layout[4] > 80 and layout[5] <= layout[6] + 1, layout
+            page.locator('#sound').click()
+            page.locator('#close').click()
+            assert page.evaluate("scrollY") == 0
+        page.set_viewport_size({"width": 1160, "height": 790})
+        send(teacher, "event", value="leak")
+        page.locator('.field[data-event="leak"]').wait_for()
+        page.wait_for_timeout(500)
+        screenshot("rescue.webp")
         send(teacher, "end")
         page.locator("#results").click()
         page.get_by_role("heading", name="本店營業成果").wait_for()

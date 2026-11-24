@@ -1,3 +1,5 @@
+import { motions, gesturePath, checkTrace, motionOptions } from '../public/gestures.js'
+import { eligible } from '../public/brigade.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -26,7 +28,8 @@ function walk(r, p, s) {
   command(r, p, { op: 'move', x: 0, z: 0 })
 }
 function act(r, p, o, op, extra = {}) {
-  return command(r, p, { op, order: o.id, ...extra })
+  const trace = motions[op] ? gesturePath(op, motionOptions(op, o, extra.value)) : undefined
+  return command(r, p, { op, order: o.id, trace, ...extra })
 }
 function tasks(r, o, st) {
   for (const q of o.tasks.filter((t) => t.station === st && !t.done)) {
@@ -40,7 +43,8 @@ function tasks(r, o, st) {
   }
 }
 function serve(r, o) {
-  const [a, b = a, c = a, d = a] = r.players
+  const [a, b = a, c = a] = r.players
+  const d = r.players[3] ?? (r.players.length === 2 ? b : a)
   walk(r, a, stations.pantry)
   act(r, a, o, 'flour')
   assert.throws(() => act(r, a, o, 'flour'))
@@ -63,6 +67,7 @@ function serve(r, o) {
   walk(r, c, stations.top)
   act(r, c, o, 'pickup')
   walk(r, c, stations.oven)
+  act(r, c, o, 'preheat')
   act(r, c, o, 'bake')
   assert.throws(() => act(r, c, o, 'unbake'))
   tick(r, o.duration + 0.1)
@@ -155,10 +160,12 @@ test('shared upgrade finances and duplicate purchase', () => {
     p = r.players[0]
   r.money = r.revenue = 250
   walk(r, p, stations.upgrade)
-  command(r, p, { op: 'upgrade', value: catalog[0][0] })
+  command(r, p, { op: 'upgrade', value: catalog[0][0], trace: gesturePath('upgrade') })
   assert.equal(r.money, 175)
   assert.equal(r.revenue, 250)
-  assert.throws(() => command(r, p, { op: 'upgrade', value: 'oven' }))
+  assert.throws(() =>
+    command(r, p, { op: 'upgrade', value: 'oven', trace: gesturePath('upgrade') }),
+  )
   assert.equal(r.money, 175)
 })
 test('five active events have distinct interactions, supply and a single completion', () => {
@@ -167,11 +174,19 @@ test('five active events have distinct interactions, supply and a single complet
       p = r.players[0]
     command(r, null, { op: 'event', value: kind })
     for (let i = 0; i < 1600 && r.event; i++) {
-      const e = r.event,
-        pt = eventPoint(e, r.t)
-      if (!near(p, pt) && !p.path.length) command(r, p, { op: 'walk', x: pt.x, z: pt.z })
-      if (near(p, pt) && r.t - e.last > 0.3 && (kind !== 'duel' || Math.sin(r.t * 3) > 0.12))
-        command(r, p, { op: 'event', value: e.sequence[e.step % 3] })
+      for (const chef of r.players) {
+        const e = r.event
+        if (!e || e.contributions[chef.id]) continue
+        const pt = eventPoint(e, r.t, chef)
+        if (!near(chef, pt) && !chef.path.length) command(r, chef, { op: 'walk', x: pt.x, z: pt.z })
+        if (near(chef, pt) && r.t - (e.lastBy[chef.id] ?? -1) > 0.3)
+          command(r, chef, {
+            op: 'event',
+            eventId: e.start,
+            value: e.sequence[chef.skin % 3],
+            trace: gesturePath(kind),
+          })
+      }
       tick(r, 0.05)
     }
     assert.equal(r.finishedEvents, 1, kind)
@@ -242,4 +257,66 @@ test('oven protects the pizza while another chef studies, then tracks overbaking
   tick(r, 3)
   assert.equal(oven.warming, false)
   assert.ok(oven.hotAge >= 3)
+})
+
+test('four independent jobs are available on the opening ticket; private page state belongs to the teacher', () => {
+  const r = setup(4),
+    [a, b, c, d] = r.players,
+    o = r.orders[0]
+  r.settings.events = false
+  for (const [p, where] of [
+    [a, 'pantry'],
+    [b, 'fridge'],
+    [c, 'oven'],
+    [d, 'cut'],
+  ])
+    walk(r, p, stations[where])
+  const q = o.tasks.find((q) => q.owner === d.id)
+  assert.equal(q.station, 'cut')
+  act(r, d, o, 'answer', { task: q.id, value: q.answer })
+  act(r, c, o, 'preheat')
+  act(r, b, o, 'kit')
+  act(r, a, o, 'flour')
+  assert.equal(o.stage, 1)
+  assert.equal(q.done, true)
+  assert.ok(o.preheated)
+  assert.equal(b.hand.type, 'kit')
+  command(r, d, {
+    op: 'view',
+    view: {
+      page: 'station',
+      station: 'cut',
+      task: q.id,
+      order: o.id,
+      heading: '扇形切割桌',
+      draft: '3/4',
+      feedback: '檢查單位',
+    },
+  })
+  assert.equal(snapshot(r, null).players[3].view.draft, '3/4')
+  assert.equal(snapshot(r, a).players[3].view, undefined)
+})
+test('work requires a continuous gesture and a different online chef until the whole brigade contributes', () => {
+  const r = setup(4),
+    [a, b, c, d] = r.players,
+    o = r.orders[0]
+  walk(r, a, stations.pantry)
+  assert.throws(() => command(r, a, { op: 'flour', order: o.id }), /沿標記/)
+  assert.equal(o.stage, 0)
+  for (const [key, spec] of Object.entries(motions)) {
+    const path = gesturePath(key, { angle: 270, rotation: 60 })
+    assert.ok(checkTrace(key, path, { angle: 270, rotation: 60 }))
+    assert.ok(!checkTrace(key, [path[0], path[0]], { angle: 270, rotation: 60 }))
+  }
+  o.leads.knead = a.id
+  assert.deepEqual(eligible(o, r.players, 'top'), [b, c, d])
+  assert.throws(() => act(r, a, o, 'top', { value: o.flavor }), /這一棒/)
+  o.leads.top = b.id
+  o.leads.bake = c.id
+  assert.deepEqual(eligible(o, r.players, 'cut'), [d])
+  disconnect(r, d)
+  assert.ok(eligible(o, r.players, 'cut').length)
+  disconnect(r, b)
+  disconnect(r, c)
+  assert.deepEqual(eligible(o, r.players, 'cut'), [a])
 })

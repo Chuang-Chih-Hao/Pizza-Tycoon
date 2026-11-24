@@ -780,3 +780,261 @@ summary {
     font-size: 11px;
   }
 }
+#gesture,
+#watchcanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #cbbd98;
+  border-radius: 13px;
+  touch-action: none;
+  background: #e7d7b6;
+}
+#gesture:focus-visible {
+  outline: 3px solid #bb893b;
+}
+.gestureline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+}
+.gestureline b {
+  white-space: nowrap;
+  color: #9d4d32;
+}
+.gestureline span {
+  font-size: 12px;
+  color: var(--sub);
+}
+.passnote,
+.watchpage {
+  background: #ebefdf;
+  border-left: 4px solid #6a8667;
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 10px;
+  font-size: 13px;
+}
+.watchpage .fact span {
+  min-width: 5.5em;
+}
+.watchpage .fact b {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.field[data-event]:not([data-event='']) {
+  box-shadow: inset 0 0 0 4px #d5aa54;
+}
+.field[data-event='leak'] {
+  box-shadow: inset 0 0 0 4px #69aeb9;
+}
+.field[data-event='repair'] {
+  box-shadow: inset 0 0 0 4px #df905a;
+}
+#banner[data-event]:not([data-event='']) {
+  color: #fff8e6;
+  background: #854930;
+  border: 2px solid #f2cd72;
+  font-weight: 750;
+  padding: 8px 16px;
+  box-shadow: 0 4px 14px #61472942;
+  animation: event-arrives 0.57s ease-out;
+}
+#banner[data-event='leak'] {
+  background: #306977;
+}
+#banner[data-event='delivery'] {
+  background: #526e45;
+}
+@keyframes event-arrives {
+  from {
+    opacity: 0.2;
+    translate: 0 -20px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #banner {
+    animation: none !important;
+  }
+}
+html.in-kitchen,
+html.in-kitchen body {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  overflow-anchor: none;
+}
+.in-kitchen body {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+}
+.in-kitchen header {
+  height: clamp(40px, 7.7dvh, 72px);
+  padding-inline: clamp(12px, 3vw, 50px);
+}
+.in-kitchen #play {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  margin: 0 auto;
+  padding: clamp(4px, 1dvh, 12px) clamp(5px, 1.7vw, 27px) 0;
+  overflow: hidden;
+}
+.in-kitchen .gamegrid {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  grid-template-columns: clamp(122px, 16vw, 250px) minmax(0, 1fr);
+}
+.in-kitchen .field,
+.in-kitchen .tickets,
+.in-kitchen .field .viewport {
+  min-height: 0;
+  min-width: 0;
+}
+.in-kitchen .field {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.in-kitchen .lower {
+  min-height: 0;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.in-kitchen dialog {
+  max-height: calc(100dvh - 20px);
+  margin: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+#gesture,
+#watchcanvas {
+  width: min(100%, calc(50dvh * 1.94));
+  height: auto;
+  margin-inline: auto;
+}
+@media (max-width: 640px) and (orientation: portrait) {
+  .in-kitchen .gamegrid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .in-kitchen .tickets {
+    display: flex;
+    align-items: stretch;
+    padding: 4px;
+    overflow: hidden;
+  }
+  .tickets > .tickethead,
+  .tickets > details {
+    display: none;
+  }
+  #orderlist {
+    display: flex;
+    gap: 5px;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+  }
+  #orderlist .ticket {
+    margin: 0;
+    flex: 0 0 112px;
+    min-width: 0;
+    padding: 5px 6px;
+  }
+  .ticket small,
+  .ticket span {
+    font-size: 10px;
+  }
+  .in-kitchen .gamebar {
+    justify-content: space-between;
+    gap: 5px;
+    padding: 6px 8px;
+  }
+  .in-kitchen .mission {
+    padding: 7px 9px;
+    gap: 5px;
+  }
+  .in-kitchen .lower {
+    padding: 5px;
+  }
+  .in-kitchen .lower div {
+    flex-wrap: wrap;
+  }
+  .gestureline {
+    align-items: start;
+  }
+  .gestureline span {
+    max-width: 67%;
+  }
+}
+@media (max-height: 560px) and (orientation: landscape) {
+  .in-kitchen header {
+    height: 33px;
+  }
+  .in-kitchen .brand img {
+    width: 24px;
+  }
+  .in-kitchen .brand span {
+    font-size: 17px;
+  }
+  .in-kitchen .brand small {
+    display: none;
+  }
+  .in-kitchen .gamebar {
+    padding: 3px 10px;
+  }
+  .in-kitchen .gamebar div {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .in-kitchen .mission {
+    min-height: 0;
+    padding: 3px 8px;
+    flex-wrap: nowrap;
+  }
+  .in-kitchen .mission div {
+    width: auto;
+    flex: 1;
+  }
+  .in-kitchen .lower {
+    padding: 2px 0;
+  }
+  .in-kitchen .lower button,
+  .in-kitchen .mission button {
+    padding: 4px 7px;
+  }
+  .in-kitchen #gesture,
+  .in-kitchen #watchcanvas {
+    width: min(100%, calc(43dvh * 1.94));
+  }
+  .in-kitchen dialog {
+    padding: 6px 14px 10px;
+  }
+}
+.coachline {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.coachline input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}

@@ -90,12 +90,18 @@ export function route(p, x, z) {
     path.push([n[0] * step, n[1] * step])
   return path.reverse()
 }
-export function eventPoint(e, t) {
+export function eventPoint(e, t, player = null) {
+  const lane = (player?.lane ?? 0) % 4
   if (e.kind === 'mouse')
-    return { x: 1.6 * Math.sin(t * 0.73), z: -0.95 + 0.44 * Math.sin(t * 1.21), w: 0.35, d: 0.35 }
+    return {
+      x: (lane - 1.5) * 0.83 + 0.48 * Math.sin(t * 0.72 + lane),
+      z: -0.95 + 0.32 * Math.sin(t * 0.84 + lane),
+      w: 0.35,
+      d: 0.35,
+    }
   if (e.kind === 'delivery')
-    return { x: e.step % 2 ? -1.65 : 4.7, z: e.step % 2 ? -1.8 : 2.55, w: 0.45, d: 0.5 }
+    return { x: player?.cargo ? -1.65 : 4.7, z: player?.cargo ? -1.8 : 2.55, w: 0.45, d: 0.5 }
   if (e.kind === 'repair') return stations.oven
   if (e.kind === 'duel') return stations.dough
-  return { x: -1.65, z: 0.5, w: 1, d: 0.9 }
+  return { x: -2.5 + lane * 1.05, z: 0.32 + (lane % 2) * 0.42, w: 0.8, d: 0.65 }
 }

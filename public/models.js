@@ -760,6 +760,20 @@ export function animateChef(a, time, action, carrying, seed = 0) {
           ? -0.78 + Math.sin(time * 11 + i) * 0.48
           : Math.sin(time * 2 + i) * 0.05
     a.arms[i].rotation.z = action === '慶祝' ? s * 0.9 : 0
+    if (/擀|揉/.test(action)) {
+      a.arms[i].rotation.x = -1 + 0.35 * Math.sin(time * 7)
+      a.body.rotation.x = 0.1 + 0.07 * Math.sin(time * 7)
+    } else if (/旋轉|安裝|電線/.test(action)) {
+      a.arms[i].rotation.x = -1.05
+      a.arms[i].rotation.z = 0.31 * Math.sin(time * 6 + i)
+      a.body.rotation.x = 0.04
+    } else if (/刀|配料|刮|合圍/.test(action)) {
+      a.arms[i].rotation.z = 0.3 * Math.sin(time * 6 + i)
+      a.body.rotation.x = 0.11
+    } else if (/出爐|入爐|遞出|托起|放上|取麵粉|折盒/.test(action)) {
+      a.arms[i].rotation.x = -0.8 + 0.38 * Math.cos(time * 4.8)
+      a.body.rotation.x = 0.1 + 0.06 * Math.cos(time * 4.8)
+    } else a.body.rotation.x = 0
   }
 }
 export function mouse() {

@@ -16,6 +16,10 @@ const ext = {
 }
 const allowed = new Set([
   'index.html',
+  'brigade.js',
+  'gestures.js',
+  'operation.js',
+  'eventfx.js',
   'app.js',
   'world.js',
   'scene.js',
@@ -42,7 +46,7 @@ export function makeServer() {
     }
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, version: '1.1.0' }))
+      res.end(JSON.stringify({ ok: true, version: '1.2.0' }))
       return
     }
     const name = path === '/' ? 'index.html' : path.slice(1)
@@ -137,11 +141,34 @@ export function makeServer() {
         seen.add(m.nonce)
         if (seen.size > 512) seen.delete(seen.values().next().value)
         const result = command(r, p, m)
-        if (m.op !== 'move' && m.op !== 'walk') {
+        if (
+          p &&
+          [
+            'place',
+            'knead',
+            'top',
+            'bake',
+            'unbake',
+            'box',
+            'flour',
+            'kit',
+            'pickup',
+            'addkit',
+            'drop',
+          ].includes(m.op)
+        ) {
+          r.feedback.push({ id: ++r.feedbackId, type: m.op, t: r.t, who: p.id })
+          if (r.feedback.length > 8) r.feedback.shift()
+        }
+        if (p && !['view', 'move', 'walk', 'study'].includes(m.op))
+          p.lastResult = result?.help || '操作完成'
+        if (!['move', 'walk', 'view'].includes(m.op)) {
           send(ws, { type: 'ack', op: m.op, nonce: m.nonce, ...result })
           broadcast(r)
         }
       } catch (e) {
+        const actor = peers.get(ws)?.p
+        if (actor) actor.lastResult = e.message
         send(ws, { type: 'error', op: m?.op, message: e.message })
       }
     })
