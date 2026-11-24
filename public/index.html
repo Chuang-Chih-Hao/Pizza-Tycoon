@@ -1,9 +1,127 @@
-<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>披薩大亨｜黃金切片</title>
-<style>*{box-sizing:border-box}body{margin:7vh auto;padding:24px;max-width:640px;background:#f9f2e4;color:#263d35;font:18px/1.65 system-ui}h1{color:#b54d34}button,input{font:inherit;padding:9px 15px;border:1px solid #958d77;border-radius:8px;margin:5px 4px 5px 0}button{background:#244c42;color:white;cursor:pointer}section{background:white;padding:22px;border-radius:16px}small{color:#6a6559}</style>
-<small>GOLDEN SLICE PIZZERIA</small><h1>披薩大亨・黃金切片</h1><section id="entry"><h2>教室連線大廳</h2><button id="host">老師開房</button><hr><input id="code" placeholder="六位房間代碼" maxlength="6"><input id="name" placeholder="廚師暱稱" maxlength="14"><button id="join">學生加入</button></section><section id="room" hidden><h2 id="title"></h2><p id="players"></p><button id="ready">我準備好了</button></section><p id="status" role="status"></p>
-<script type="module">
-const el=id=>document.getElementById(id), ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/play');
-let me;function send(m){if(ws.readyState===1)ws.send(JSON.stringify({...m,nonce:crypto.randomUUID()}))}
-el('host').onclick=()=>send({op:'create'});el('join').onclick=()=>send({op:'join',name:el('name').value,code:el('code').value});el('ready').onclick=()=>send({op:'ready'});
-ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='error')el('status').textContent=m.message;if(m.type==='session'){me=m.id;el('entry').hidden=true;el('room').hidden=false;el('title').textContent='房間 '+m.code;el('ready').hidden=me==='host'}if(m.type==='state')el('players').textContent=m.state.players.map(p=>p.name+(p.ready?' ✓':'')).join('、')||'等待廚師加入'};ws.onclose=()=>el('status').textContent='連線已中斷，請重新整理。';
-</script></html>
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#f5f0df" />
+    <title>披薩大亨：黃金切片｜Golden Slice Pizzeria</title>
+    <link rel="icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="importmap">
+      { "imports": { "three": "/vendor/build/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img src="/icon.svg" alt="" /><span>Golden Slice<small>P I Z Z E R I A</small></span>
+      </div>
+      <div class="topright">
+        <span id="net"><i></i>連線中</span
+        ><button id="sound" class="quiet" aria-label="音效與畫質設定">設定</button>
+      </div>
+    </header>
+    <main id="home">
+      <div class="welcome">
+        <div class="intro">
+          <div class="wordmark">GOLDEN SLICE <b>✦</b> PIZZERIA</div>
+          <h1>披薩大亨<span>黃金切片</span></h1>
+          <p>和夥伴一起掌廚。揉開麵團、轉動披薩刀，為每位客人切出剛剛好的一片。</p>
+          <div class="entry">
+            <button class="primary" id="student">學生加入 <b>↗</b></button
+            ><button id="teacher">老師開店</button>
+          </div>
+          <small class="meta">1–4 位廚師 <i></i> 30 分鐘 <i></i> 六年級扇形</small>
+        </div>
+        <div class="showcase">
+          <div class="shopname">
+            <span class="star">✷</span> LA CUCINA <span class="star">✷</span>
+          </div>
+          <div id="heroScene" class="viewport"></div>
+          <div class="heroCaption">微縮披薩廚房<span>ISOMETRIC KITCHEN</span></div>
+        </div>
+      </div>
+      <div class="steps">
+        <div>
+          <b>01</b>
+          <section>
+            <h3>備料與烘烤</h3>
+            <p>和隊友接力，照顧爐火。</p>
+          </section>
+        </div>
+        <div>
+          <b>02</b>
+          <section>
+            <h3>量角與切片</h3>
+            <p>用扇形比例切出客人指定的份量。</p>
+          </section>
+        </div>
+        <div>
+          <b>03</b>
+          <section>
+            <h3>裝盒與出餐</h3>
+            <p>一起升級店鋪，挑戰黃金披薩。</p>
+          </section>
+        </div>
+      </div>
+    </main>
+    <main id="lobby" hidden>
+      <div class="lobbycard">
+        <div class="wordmark">GOLDEN SLICE PIZZERIA</div>
+        <h1>開店準備</h1>
+        <p>把房間代碼交給一起上課的廚師。</p>
+        <div class="roomcode" id="roomcode"></div>
+        <div id="roster"></div>
+        <div id="lobbycontrols"></div>
+      </div>
+    </main>
+    <main id="play" hidden>
+      <div class="gamebar">
+        <div><small>營業時段</small><strong id="phase"></strong></div>
+        <div><small>剩餘時間</small><strong id="clock"></strong></div>
+        <div><small>營業額</small><strong id="sales"></strong></div>
+        <div><small>店鋪等級</small><strong id="level"></strong></div>
+        <button id="teacherpanel" hidden>店務管理</button>
+      </div>
+      <div class="gamegrid">
+        <aside class="tickets">
+          <div class="tickethead"><span>出餐單</span><small>ORDERS</small></div>
+          <div id="orderlist"></div>
+          <details>
+            <summary>廚師動態</summary>
+            <div id="team"></div>
+          </details>
+        </aside>
+        <section class="field">
+          <div id="gameScene" class="viewport"></div>
+          <div class="zoom">
+            <button id="minus" aria-label="縮小">−</button
+            ><button id="plus" aria-label="放大">＋</button>
+          </div>
+          <div id="banner"></div>
+          <div class="mission">
+            <div><small id="held">手持物品</small><strong id="mission"></strong></div>
+            <button class="primary" id="go">前往工作區</button
+            ><button id="drop" hidden>放下 Q</button>
+          </div>
+        </section>
+      </div>
+      <div class="lower">
+        <span>WASD / 方向鍵移動　·　Shift 加速　·　E 操作　·　Q 放下</span>
+        <div>
+          <button id="mytask" hidden>我的數學任務</button
+          ><button id="eventgo" hidden>處理事件</button><button id="shopgo">設備目錄</button
+          ><button id="results" hidden>查看成果</button>
+        </div>
+      </div>
+    </main>
+    <dialog id="dialog">
+      <div class="modalhead">
+        <span id="eyebrow">GOLDEN SLICE</span><button id="close" aria-label="關閉">×</button>
+      </div>
+      <div id="modal"></div>
+    </dialog>
+    <div id="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
