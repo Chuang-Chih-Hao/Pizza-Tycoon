@@ -551,3 +551,26 @@ test('manual close and timeout each allow a teacher to reopen a private, clean s
     assert.equal(snapshot(r, b).lastReport, undefined)
   }
 })
+
+test('a chef who reached the mouse can read the instructions, but must chase again after moving', () => {
+  const r = setup(1),
+    p = r.players[0]
+  command(r, null, { op: 'event', value: 'mouse' })
+  const e = r.event,
+    spot = eventPoint(e, r.t, p)
+  p.x = spot.x
+  p.z = spot.z
+  command(r, p, { op: 'engage', eventId: e.start })
+  tick(r, 20)
+  command(r, p, { op: 'engage', eventId: e.start })
+  p.x = 4.8
+  p.z = 2.3
+  assert.throws(() => command(r, p, { op: 'engage', eventId: e.start }))
+  assert.throws(() =>
+    command(r, p, {
+      op: 'event',
+      eventId: e.start,
+      inputs: activityInputs('mouse', activitySeed(null, e, p)),
+    }),
+  )
+})

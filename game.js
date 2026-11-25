@@ -9,6 +9,7 @@ import {
   route,
   near,
   eventPoint,
+  holdingMouse,
 } from './public/world.js'
 import { eligible, availableMath, roleFor } from './public/brigade.js'
 import { patienceLeft, moodOf } from './public/guests.js'
@@ -262,6 +263,7 @@ export function newOrder(r, gold = false) {
 }
 export function disconnect(r, p) {
   p.online = false
+  p.engaged = null
   p.studying = null
   p.cargo = false
   p.move = [0, 0]
@@ -362,11 +364,7 @@ const makeEvent = (kind, r) => {
 }
 function playEvent(r, p, m) {
   const e = r.event
-  const atMouse =
-    e?.kind === 'mouse' &&
-    p.engaged?.id === e.start &&
-    r.t - p.engaged.at < 18 &&
-    Math.hypot(p.x - p.engaged.x, p.z - p.engaged.z) < 0.4
+  const atMouse = holdingMouse(e, r.t, p, p.engaged)
   need(e && (atMouse || near(p, eventPoint(e, r.t, p))), '請前往你負責的事件位置。')
   need(m.eventId === e.start, '這場事件已結束。')
   need(r.t - (e.lastBy[p.id] ?? -2) > 0.22, '稍候再接下一棒。')
@@ -626,7 +624,10 @@ export function command(r, p, m) {
   if (m.op === 'engage') {
     const e = r.event
     need(
-      e?.kind === 'mouse' && m.eventId === e.start && near(p, eventPoint(e, r.t, p)),
+      e?.kind === 'mouse' &&
+        m.eventId === e.start &&
+        (holdingMouse(e, r.t, p, p.engaged) ||
+          [0, 0.5, 1].some((delay) => near(p, eventPoint(e, Math.max(e.start, r.t - delay), p)))),
       '請先靠近鼠洞。',
     )
     p.engaged = { id: e.start, at: r.t, x: p.x, z: p.z }

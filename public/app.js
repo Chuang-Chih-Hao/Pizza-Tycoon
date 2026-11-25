@@ -8,6 +8,7 @@ import {
   itemNames,
   near,
   eventPoint,
+  holdingMouse,
 } from './world.js'
 import { guestLabels, guestLine, moodOf, patienceLeft } from './guests.js'
 import { eligible, roleFor, roleNames, craftLabels, availableMath } from './brigade.js'
@@ -39,6 +40,8 @@ let socket,
   cardsKey = '',
   rosterKey = '',
   nextVisit = null,
+  mouseSpot = null,
+  pendingEntry = null,
   walkKeys = new Set(),
   actionMemory = {},
   lastNews = 0,
@@ -278,6 +281,7 @@ function show(mode, title, html) {
   }
 }
 function close() {
+  pendingEntry = null
   if (dialogMode === 'station' && me() && state.status === 'playing') send('study')
   if (dlg.open) dlg.close()
   dialogMode = ''
@@ -307,7 +311,10 @@ dlg.addEventListener('click', (e) => {
 })
 function send(op, extra = {}) {
   if (socket?.readyState !== 1) {
-    if (op !== 'move') toast('正在重新連線，請稍候。')
+    if (['join', 'create'].includes(op) && !identity) {
+      pendingEntry = { op, extra }
+      toast('正在連線，連上後會自動進入準備室。')
+    } else if (op !== 'move') toast('正在重新連線，請稍候。')
     return
   }
   socket.send(JSON.stringify({ op, round: state?.round, nonce: crypto.randomUUID(), ...extra }))
@@ -324,6 +331,11 @@ function connect() {
       saved = JSON.parse(sessionStorage.getItem('golden-room'))
     } catch {}
     if (saved) send('restore', saved)
+    else if (pendingEntry) {
+      const entry = pendingEntry
+      pendingEntry = null
+      send(entry.op, entry.extra)
+    }
   }
   socket.onmessage = (e) => {
     const m = JSON.parse(e.data)
@@ -678,6 +690,7 @@ function render() {
       close()
       if ($('guide').open) $('guide').close()
       selected = 0
+      mouseSpot = null
       nextVisit = null
       actionMemory = {}
       cardsKey = ''
@@ -1444,6 +1457,11 @@ function eventPanel(force) {
     }
     return
   }
+  if (force && e.kind === 'mouse' && near(me(), eventPoint(e, state.t, me()))) {
+    const p = me()
+    mouseSpot = { id: e.start, at: state.t, x: p.x, z: p.z }
+    send('engage', { eventId: e.start })
+  }
   const key = e.kind + '-' + e.step + '-' + !!me().cargo
   if (!force && panelKey === key) return
   panelKey = key
@@ -1923,7 +1941,10 @@ document.addEventListener('click', (e) => {
   }
   if (c === 'event') {
     if (!state.event) return close()
-    if (!near(me(), eventPoint(state.event, state.t, me()))) {
+    if (
+      !holdingMouse(state.event, state.t, me(), mouseSpot) &&
+      !near(me(), eventPoint(state.event, state.t, me()))
+    ) {
       close()
       gotoEvent()
       return

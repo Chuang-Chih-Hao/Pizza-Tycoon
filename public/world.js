@@ -105,3 +105,13 @@ export function eventPoint(e, t, player = null) {
   if (e.kind === 'duel') return stations.dough
   return { x: -2.5 + lane * 1.05, z: 0.32 + (lane % 2) * 0.42, w: 0.8, d: 0.65 }
 }
+
+export function holdingMouse(e, t, p, spot) {
+  return (
+    e?.kind === 'mouse' &&
+    spot?.id === e.start &&
+    t >= spot.at &&
+    t - spot.at <= 30 &&
+    Math.hypot(p.x - spot.x, p.z - spot.z) < 0.4
+  )
+}
