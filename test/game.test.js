@@ -1,4 +1,5 @@
 import { motions, gesturePath, checkTrace, motionOptions } from '../public/gestures.js'
+import { moodOf, guestLine, patienceLeft } from '../public/guests.js'
 import { eligible } from '../public/brigade.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -319,4 +320,87 @@ test('work requires a continuous gesture and a different online chef until the w
   disconnect(r, b)
   disconnect(r, c)
   assert.deepEqual(eligible(o, r.players, 'cut'), [a])
+})
+
+test('guest speech follows the dish and patience; teacher pause and sign affect the same clock', () => {
+  const r = setup(4),
+    o = r.orders[0]
+  r.settings.events = false
+  const budget = o.patience
+  assert.equal(moodOf(o, r.t, r.upgrades), 'eager')
+  assert.notEqual(guestLine(o, 'eager'), guestLine({ ...o, stage: 4 }, 'eager'))
+  tick(r, budget / 2)
+  assert.equal(moodOf(o, r.t, r.upgrades), 'waiting')
+  command(r, null, { op: 'pause' })
+  tick(r, 600)
+  assert.equal(patienceLeft(o, r.t, r.upgrades), budget / 2)
+  command(r, null, { op: 'resume' })
+  tick(r, budget * 0.3)
+  assert.equal(moodOf(o, r.t, r.upgrades), 'lastCall')
+  const before = patienceLeft(o, r.t, r.upgrades)
+  r.money = 160
+  const player = r.players[0]
+  walk(r, player, stations.upgrade)
+  act(r, player, o, 'upgrade', { value: 'sign' })
+  assert.equal(patienceLeft(o, r.t, r.upgrades), budget + 60 - r.t)
+  assert.ok(patienceLeft(o, r.t, r.upgrades) > before)
+  tick(r, budget + 59.9 - r.t)
+  assert.ok(r.orders.includes(o))
+  tick(r, 0.11)
+  assert.ok(!r.orders.includes(o))
+  assert.equal(r.walkedAway, 1)
+})
+test('walkout is unpaid, releases both hands and the task, preserves other orders and allows replacement', () => {
+  const r = setup(4),
+    [a, b, c, d] = r.players
+  const [o, other] = r.orders
+  r.settings.events = false
+  walk(r, a, stations.pantry)
+  act(r, a, o, 'flour')
+  walk(r, b, stations.fridge)
+  act(r, b, o, 'kit')
+  walk(r, c, stations.pantry)
+  act(r, c, other, 'flour')
+  const q = o.tasks[0]
+  walk(r, d, stations[q.station])
+  act(r, d, o, 'study', { task: q.id })
+  assert.equal(d.studying.task, q.id)
+  tick(r, o.patience - r.t)
+  assert.equal(r.orders.includes(o), false)
+  assert.deepEqual([a.hand, b.hand, d.studying], [null, null, null])
+  assert.equal(c.hand.id, other.id)
+  assert.deepEqual([r.revenue, r.money, r.delivered, r.satisfaction, r.walkedAway], [0, 0, 0, 0, 1])
+  assert.throws(() => act(r, a, o, 'serve'), /離店/)
+  assert.equal(snapshot(r, d).customers.find((g) => g.id === o.id).outcome, 'left')
+  tick(r, 6.1)
+  assert.ok(r.orders.some((v) => v.id > other.id + 1))
+  assert.equal(
+    r.customers.some((g) => g.id === o.id),
+    false,
+  )
+  assert.equal(r.walkedAway, 1)
+})
+test('payment just before the deadline wins once; a late golden order earns nothing', () => {
+  const r = setup(1),
+    p = r.players[0],
+    o = r.orders[0]
+  r.settings.events = false
+  walk(r, p, stations.serve)
+  tick(r, o.patience - r.t - 0.1)
+  o.stage = 7
+  p.hand = { id: o.id, type: 'boxed' }
+  o.item = { type: 'boxed', loc: p.id }
+  act(r, p, o, 'serve')
+  const money = r.money
+  assert.ok(money > 0)
+  assert.equal(r.customers[0].outcome, 'paid')
+  tick(r, 0.2)
+  assert.equal(r.walkedAway, 0)
+  assert.throws(() => act(r, p, o, 'serve'))
+  command(r, null, { op: 'gold' })
+  const gold = r.orders.find((v) => v.gold)
+  tick(r, gold.patience)
+  assert.equal(r.golden, '客人已離店')
+  assert.equal(r.trophy, undefined)
+  assert.deepEqual([r.money, r.revenue, r.delivered], [money, money, 1])
 })

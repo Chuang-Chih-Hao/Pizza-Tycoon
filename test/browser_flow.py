@@ -148,6 +148,7 @@ def run(url, output):
         operate("pickup")
         work("serve")
         page.wait_for_function("Number(document.querySelector('#sales').textContent.slice(1)) > 0")
+        page.locator('.guest-bubble[data-mood="paid"]').wait_for()
 
         for skin, name in enumerate(["阿栗", "小沐", "悠悠"], start=2):
             chef = connect_room()

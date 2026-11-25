@@ -1044,3 +1044,65 @@ html.in-kitchen body {
   border-left: 3px solid var(--green);
   overflow-wrap: anywhere;
 }
+.guest-bubble {
+  --edge: #699570;
+  --wash: #fffdf3;
+  position: absolute;
+  box-sizing: border-box;
+  z-index: 2;
+  transform: translateY(-100%);
+  border: 1.5px solid var(--edge);
+  border-radius: 13px 13px 13px 5px;
+  background: var(--wash);
+  padding: 7px 10px;
+  color: #2b362d;
+  font-size: clamp(11px, 1.05vw, 14px);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  box-shadow: 0 3px 9px #362c202a;
+}
+.guest-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: calc(var(--tail) - 4px);
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--wash);
+  border-bottom: 1.5px solid var(--edge);
+  border-right: 1.5px solid var(--edge);
+}
+.guest-bubble b,
+.guest-bubble span {
+  display: block;
+}
+.guest-bubble b {
+  font-size: 0.83em;
+  color: #516448;
+  margin-bottom: 1px;
+}
+.guest-bubble[data-mood='waiting'] {
+  --edge: #ad823b;
+  --wash: #fff6db;
+}
+.guest-bubble[data-mood='lastCall'],
+.guest-bubble[data-mood='left'] {
+  --edge: #aa6655;
+  --wash: #fff0e7;
+}
+.guest-bubble[data-mood='paid'] {
+  --edge: #478366;
+  --wash: #edf7e9;
+}
+.ticket .guest-clock {
+  font-weight: 700;
+  color: #3d644f;
+  font-variant-numeric: tabular-nums;
+}
+.ticket .guest-clock[data-mood='waiting'] {
+  color: #825b1d;
+}
+.ticket .guest-clock[data-mood='lastCall'] {
+  color: #9b4036;
+}

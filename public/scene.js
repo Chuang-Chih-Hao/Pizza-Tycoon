@@ -1,3 +1,4 @@
+import { guestLine, moodOf, guestLabels } from './guests.js'
 import { EventEffects } from './eventfx.js'
 import * as T from 'three'
 import {
@@ -12,6 +13,7 @@ import {
   itemModel,
   chef,
   animateChef,
+  animateGuest,
   batch,
   disposeGroup,
   mouse,
@@ -39,6 +41,13 @@ export class Kitchen {
     this.labels = document.createElement('div')
     this.labels.className = 'labels'
     host.append(this.labels)
+    this.bubble = document.createElement('div')
+    this.bubble.className = 'guest-bubble'
+    this.bubble.hidden = true
+    this.speakerName = document.createElement('b')
+    this.speakerLine = document.createElement('span')
+    this.bubble.append(this.speakerName, this.speakerLine)
+    this.labels.append(this.bubble)
     this.world = new T.Scene()
     this.eventFx = new EventEffects(this.world)
     this.camera = new T.OrthographicCamera(-8, 8, 5, -5, 0.1, 85)
@@ -139,6 +148,7 @@ export class Kitchen {
       top: half,
       bottom: -half,
     })
+    this.bubbleHeight = 0
     this.camera.updateProjectionMatrix()
     this.renderer.setPixelRatio(this.low ? 1 : Math.min(1.65, window.devicePixelRatio || 1))
     this.renderer.setSize(w, h, false)
@@ -159,6 +169,7 @@ export class Kitchen {
         ...Object.values(this.parts),
         ...(this.eventObj ? [this.eventObj] : []),
         ...this.items.values(),
+        ...[...this.customers.values()].filter((c) => c.g.userData.key),
       ].map((v) => v.g ?? v),
       true,
     )
@@ -186,6 +197,97 @@ export class Kitchen {
     const v = pos.clone().project(this.camera)
     e.style.left = (v.x + 1) * 50 + '%'
     e.style.top = (1 - v.y) * 50 + '%'
+  }
+  listenTo(id) {
+    this.listenId = id
+    this.listenUntil = (this.s?.t ?? 0) + 8
+  }
+  speak(guest, mood, pos) {
+    const bubble = this.bubble,
+      w = this.host.clientWidth,
+      h = this.host.clientHeight
+    const width = Math.min(w > 500 ? 196 : 156, w - 12)
+    const heading = guest.customer + ' · #' + guest.id + '　' + guestLabels[mood]
+    const line = guestLine(guest, mood)
+    if (
+      this.speakerLine.textContent !== line ||
+      this.speakerName.textContent !== heading ||
+      bubble.hidden
+    ) {
+      bubble.hidden = false
+      bubble.dataset.mood = mood
+      bubble.dataset.order = guest.id
+      this.speakerName.textContent = heading
+      this.speakerLine.textContent = line
+      this.bubbleHeight = 0
+    }
+    bubble.style.width = width + 'px'
+    if (!this.bubbleHeight) this.bubbleHeight = bubble.offsetHeight
+    const anchor = new T.Vector3(pos.x, 1.55, pos.z).project(this.camera)
+    const x = ((anchor.x + 1) * w) / 2
+    const left = Math.max(6, Math.min(w - width - 6, x - width * 0.42))
+    const bottom = Math.max(this.bubbleHeight + 4, Math.min(h - 9, ((1 - anchor.y) * h) / 2 - 7))
+    bubble.style.left = left + 'px'
+    bubble.style.top = bottom + 'px'
+    bubble.style.setProperty('--tail', Math.max(12, Math.min(width - 17, x - left)) + 'px')
+  }
+  drawCounter(preview, state, clock, dt, t) {
+    const waiting = preview ? [{ id: -1 }] : state.orders
+    const exits = preview ? [] : state.customers
+    const crowd = [...waiting, ...exits]
+    const phase = Math.floor(clock / 7)
+    const urgent = preview
+      ? []
+      : waiting.filter((o) => moodOf(o, clock, state.upgrades) === 'lastCall')
+    const explicit = clock < this.listenUntil && waiting.find((o) => o.id === this.listenId)
+    const nextGuest = waiting.length ? waiting[phase % waiting.length] : null
+    const lastCall = urgent.length && phase % 2 === 0 ? urgent[(phase / 2) % urgent.length] : null
+    const speaker = explicit || exits.at(-1) || lastCall || nextGuest
+    this.bubble.hidden = preview || !speaker
+    const time = state?.status === 'paused' || state?.status === 'ended' ? clock : t
+    crowd.forEach((guest, index) => {
+      const exit = guest.outcome
+      const slot = exit ? guest.position : index
+      const place = -3.2 - slot * 0.79
+      let c = this.customers.get(guest.id)
+      if (!c) {
+        c = chef(Math.abs(guest.id + 3) % 6, true)
+        this.customers.set(guest.id, c)
+        this.world.add(c.g)
+        c.g.scale.setScalar(0.82)
+        c.g.position.set(exit ? place : -6.45, 0, 3.6)
+      }
+      const mood = exit || (preview ? 'eager' : moodOf(guest, clock, state.upgrades))
+      c.g.userData.key = exit || preview ? '' : 'customer'
+      c.g.userData.data = { order: guest.id }
+      let walking
+      if (exit) {
+        c.exitFrom ??= c.g.position.x
+        const leave = Math.min(1, Math.max(0, (clock - guest.t - 1.7) / 4))
+        c.g.position.x = c.exitFrom + (-7.65 - c.exitFrom) * leave
+        c.g.position.z = 3.6 + leave * 0.55
+        c.g.rotation.y = leave > 0 ? -1.36 : 0.46
+        walking = leave > 0
+      } else {
+        const step = state?.status === 'paused' ? 0 : dt
+        c.g.position.x += (place - c.g.position.x) * (1 - Math.exp(-step * 2))
+        walking = Math.abs(c.g.position.x - place) > 0.1
+        c.g.rotation.y = walking ? 1.42 : 0.46
+      }
+      if (exit === 'paid' && !c.parcel) {
+        c.parcel = batch(itemModel('boxed'))
+        c.parcel.scale.setScalar(0.55)
+        c.parcel.position.set(-0.09, 0.66, 0.37)
+        c.body.add(c.parcel)
+      }
+      animateGuest(c, time, mood, walking, guest.id)
+      if (!preview && speaker === guest) this.speak(guest, mood, c.g.position)
+    })
+    for (const [id, c] of this.customers) {
+      if (crowd.some((o) => o.id === id)) continue
+      disposeGroup(c.g)
+      this.customers.delete(id)
+    }
   }
   placed(key, sig, fn, loc, scale = 1) {
     let entry = this.items.get(key)
@@ -459,40 +561,7 @@ export class Kitchen {
         this.trail.instanceMatrix.needsUpdate = true
       }
     } else this.trail.count = 0
-    const crowd = preview ? [{ id: -1, customer: '', born: 0, stage: 0 }] : s.orders
-    for (const o of crowd) {
-      let c = this.customers.get(o.id)
-      if (!c) {
-        c = chef(Math.abs(o.id + 3) % 6, true)
-        this.customers.set(o.id, c)
-        this.world.add(c.g)
-        c.g.scale.setScalar(0.82)
-        c.g.position.set(-5.75, 0, 3.4)
-      }
-      const index = crowd.indexOf(o),
-        x = -3.3 - index * 0.85
-      c.g.position.x += (x - c.g.position.x) * (1 - Math.exp(-dt * 2))
-      c.g.position.z = 3.55
-      c.g.rotation.y = 2.93
-      c.head.rotation.x = !preview && clock - o.born > o.patience ? 0.13 * Math.sin(t * 3) : 0
-      animateChef(c, t, Math.abs(c.g.position.x - x) > 0.08 ? '行走' : '待機', false, index)
-      if (!preview && o.id === s.orders[0]?.id)
-        this.label(
-          'guest' + o.id,
-          '#' + o.id + ' ' + (clock - o.born > o.patience ? '期待上菜' : '等候取餐'),
-          new T.Vector3(c.g.position.x, 1.66, 3.55),
-          'guest',
-        )
-    }
-    for (const [id, c] of this.customers)
-      if (!crowd.some((o) => o.id === id)) {
-        c.g.position.x -= dt * 2
-        animateChef(c, t, '慶祝', false)
-        if (c.g.position.x < -5.9 || preview) {
-          disposeGroup(c.g)
-          this.customers.delete(id)
-        }
-      }
+    this.drawCounter(preview, s, clock, dt, t)
     this.eventFx.update(
       s?.status === 'playing' || s?.status === 'paused' ? s.event : null,
       clock,

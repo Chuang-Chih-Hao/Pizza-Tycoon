@@ -11,6 +11,7 @@ import {
   eventPoint,
 } from './public/world.js'
 import { eligible, availableMath, roleFor } from './public/brigade.js'
+import { patienceLeft, moodOf } from './public/guests.js'
 import { motions, checkTrace, motionOptions } from './public/gestures.js'
 import { makeTask, pick, fractions, geometry, correct, guidance } from './math.js'
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
@@ -49,6 +50,7 @@ export function room(code) {
     money: 0,
     revenue: 0,
     delivered: 0,
+    walkedAway: 0,
     satisfaction: 0,
     upgrades: [],
     stock: 12,
@@ -179,7 +181,7 @@ export function newOrder(r, gold = false) {
     cutIndex: 0,
     ingredients: [],
     born: r.t,
-    patience: 200 + 65 * (4 - count(r)),
+    patience: (gold ? 270 : 200) + 65 * (4 - count(r)) + 18 * r.orders.length,
     lastBy: '',
     label: '',
     revision: 0,
@@ -469,8 +471,31 @@ function record(r, p, q, value) {
   fx(r, 'right', { who: p.id })
   return { ok: true, help: q.solution, task: q.id }
 }
+function leaveCounter(r, o, outcome, rating = 0) {
+  r.customers.push({
+    id: o.id,
+    customer: o.customer,
+    outcome,
+    rating,
+    quality: o.quality,
+    position: r.orders.indexOf(o),
+    t: r.t,
+  })
+  r.orders = r.orders.filter((entry) => entry !== o)
+  r.nextOrder = r.t + 5 / r.settings.pace
+}
+function cancelOrder(r, o) {
+  for (const p of r.players) {
+    if (p.hand?.id === o.id) p.hand = null
+    if (p.studying && o.tasks.some((q) => q.id === p.studying.task)) p.studying = null
+  }
+  r.walkedAway++
+  if (o.gold) r.golden = '客人已離店'
+  leaveCounter(r, o, 'left')
+  announce(r, o.customer + '等不到 #' + o.id + '，已離店，這張訂單沒有收入。')
+}
 function complete(r, p, o) {
-  const timely = r.t - o.born <= o.patience + (r.upgrades.includes('sign') ? 60 : 0)
+  const timely = moodOf(o, r.t, r.upgrades) !== 'lastCall'
   const rating = clamp(
     3 + (timely ? 1 : 0) + (o.quality === '剛剛好' ? 1 : 0) - (o.quality === '焦香過頭' ? 1 : 0),
     1,
@@ -499,9 +524,7 @@ function complete(r, p, o) {
     fx(r, 'gold', { where: 'oven' })
   }
   if (o.creative && o.designScore >= 8) r.recipes.push(o.label)
-  r.customers.push({ id: o.id, t: r.t, rating })
-  r.orders = r.orders.filter((row) => row !== o)
-  r.nextOrder = r.t + 5 / r.settings.pace
+  leaveCounter(r, o, 'paid', rating)
   fx(r, 'sale', { where: 'serve', amount: pay })
   announce(r, o.customer + '收到披薩，給了 ' + rating + ' 顆星！收入 +' + pay)
 }
@@ -548,6 +571,8 @@ export function command(r, p, m) {
   }
   need(r.status === 'playing', '目前不在營業中。')
   const ticket = r.orders.find((o) => o.id === m.order)
+  if (!ticket && r.customers.some((c) => c.id === m.order && c.outcome === 'left'))
+    throw Error('這位客人已經離店，請改做其他訂單。')
   const motion = m.op === 'event' ? r.event?.kind : m.op
   if (motions[motion])
     need(
@@ -791,9 +816,12 @@ export function command(r, p, m) {
 }
 export function tick(r, dt) {
   if (r.status !== 'playing') return
-  r.t += dt
+  r.t = Math.min(r.limit, r.t + dt)
+  r.customers = r.customers.filter((c) => r.t - c.t < 6)
+  for (const o of r.orders) {
+    if (patienceLeft(o, r.t, r.upgrades) === 0) cancelOrder(r, o)
+  }
   if (r.t >= r.limit) {
-    r.t = r.limit
     r.status = 'ended'
     return
   }
@@ -816,7 +844,6 @@ export function tick(r, dt) {
   if (r.event) r.nextEvent = r.t + 65
   if (Math.floor(r.t / 12) !== Math.floor((r.t - dt) / 12))
     r.stock = Math.min(stockCap(r), r.stock + 1)
-  r.customers = r.customers.filter((c) => r.t - c.t < 3)
   const studying = online(r).some(
     (p) =>
       p.studying?.until >= r.t &&

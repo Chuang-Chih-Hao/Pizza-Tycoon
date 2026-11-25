@@ -660,8 +660,10 @@ export function chef(index = 0, customer = false) {
     const brow = ball(head, side * 0.144, 0.118, 0.305, 0.061, 0.016, 0.013, hair)
     brow.rotation.z = side * 0.1
   }
-  ball(head, 0, -0.085, 0.341, 0.073, 0.035, 0.023, '#713c30')
-  ball(head, 0, -0.071, 0.355, 0.055, 0.017, 0.011, '#f0ad90')
+  if (!customer) {
+    ball(head, 0, -0.085, 0.341, 0.073, 0.035, 0.023, '#713c30')
+    ball(head, 0, -0.071, 0.355, 0.055, 0.017, 0.011, '#f0ad90')
+  }
   ball(head, 0, -0.026, 0.342, 0.054, 0.042, 0.04, skin)
   ball(head, 0, 0.17, -0.075, 0.37, 0.241, 0.31, hair)
   for (let i = 0; i < 3 + (index % 3); i++) {
@@ -737,7 +739,15 @@ export function chef(index = 0, customer = false) {
     box(head, 0, 0.251, 0.23, 0.63, 0.065, 0.37, accent, 0.06)
   }
   batch(head)
-  return { g, body, legs, arms, head }
+  let mouth
+  if (customer) {
+    mouth = group()
+    mouth.position.set(0, -0.086, 0.335)
+    for (const side of [-1, 1])
+      rod(mouth, [side * 0.07, 0.018, 0], [0, -0.012, 0.012], 0.012, '#713c30')
+    head.add(batch(mouth))
+  }
+  return { g, body, legs, arms, head, mouth }
 }
 export function animateChef(a, time, action, carrying, seed = 0) {
   const walk = ['行走', '搬運', '奔跑', '滑倒'].includes(action),
@@ -774,6 +784,29 @@ export function animateChef(a, time, action, carrying, seed = 0) {
       a.arms[i].rotation.x = -0.8 + 0.38 * Math.cos(time * 4.8)
       a.body.rotation.x = 0.1 + 0.06 * Math.cos(time * 4.8)
     } else a.body.rotation.x = 0
+  }
+}
+export function animateGuest(guest, t, mood, walking, seed) {
+  animateChef(guest, t, walking ? '行走' : mood === 'paid' ? '慶祝' : '待機', false, seed)
+  const wave = Math.sin(t * 2 + seed)
+  const sad = mood === 'left' || mood === 'lastCall'
+  guest.mouth.rotation.z = sad ? Math.PI : 0
+  guest.head.rotation.x = sad ? 0.25 + wave * 0.04 : mood === 'eager' ? -0.06 + wave * 0.055 : 0
+  guest.head.rotation.y = mood === 'waiting' ? Math.sin(t * 1.8 + seed) * 0.35 : 0
+  guest.head.rotation.z = mood === 'left' ? 0.13 : 0
+  if (mood === 'paid') {
+    guest.arms[0].rotation.x = -1.05
+    guest.arms[0].rotation.z = -0.12
+    return
+  }
+  if (walking) return
+  if (mood === 'waiting' || mood === 'lastCall') {
+    guest.arms[0].rotation.x = -1.15
+    guest.arms[0].rotation.z = -0.42
+    guest.legs[1].rotation.x = 0.12 * Math.sin(t * 6)
+  } else {
+    guest.arms[1].rotation.z = 0.6 + wave * 0.2
+    guest.arms[1].rotation.x = -0.7
   }
 }
 export function mouse() {

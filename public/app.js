@@ -9,6 +9,7 @@ import {
   near,
   eventPoint,
 } from './world.js'
+import { guestLabels, guestLine, moodOf, patienceLeft } from './guests.js'
 import { eligible, roleFor, roleNames, craftLabels, availableMath } from './brigade.js'
 import { motions, gesturePath, motionOptions } from './gestures.js'
 import { startMotion, paintMotion } from './operation.js'
@@ -72,7 +73,12 @@ function openMotion(op, data = {}) {
     ...motionOptions(op, o, data.value),
     item: me()?.hand?.type || o?.item.type || 'base',
   }
-  motionReturn = { mode: dialogMode, station: bench, op }
+  motionReturn = {
+    mode: dialogMode,
+    station: bench,
+    op,
+    order: data.order ?? (op === 'drop' ? me()?.hand?.id : null),
+  }
   const [title, instruction] = motions[kind]
   show(
     'motion',
@@ -632,8 +638,17 @@ function render() {
     if ($('ready')) $('ready').textContent = me()?.ready ? '已準備・取消' : '我準備好了'
     return
   }
-  if (!state.orders.some((o) => o.id === selected))
+  const leaving = state.customers.find((c) => c.id === selected && c.outcome === 'left')
+  if (motionReturn?.order && !state.orders.some((o) => o.id === motionReturn.order)) close()
+  if (!state.orders.some((o) => o.id === selected)) {
+    if (selected && dialogMode === 'station' && bench !== 'upgrade') close()
+    if (selected && nextVisit && nextVisit.key !== 'event' && nextVisit.key !== 'upgrade') {
+      nextVisit = null
+      if (me() && state.status === 'playing') send('move', { x: 0, z: 0 })
+    }
+    if (leaving) toast(leaving.customer + '已離店，#' + selected + ' 已取消。')
     selected = (state.orders.find((o) => o.gold) || state.orders[0])?.id ?? 0
+  }
   const o = order(),
     p = me(),
     goal = targetFor(o, p)
@@ -698,11 +713,22 @@ function render() {
             esc(a.gold ? '多口味合作單' : knownTerms(a).shape + ' · ' + knownTerms(a).size) +
             '</small><small>' +
             stages[a.stage] +
-            '</small><i class="meter"><i style="width:' +
+            '</small><small class="guest-clock" data-clock="' +
+            a.id +
+            '"></small><i class="meter"><i style="width:' +
             ((a.stage + 1) / 9) * 100 +
             '%"></i></i></button>',
         )
         .join('') || '<small>等待下一張訂單</small>'
+  }
+  for (const clock of $('orderlist').querySelectorAll('[data-clock]')) {
+    const ticket = state.orders.find((v) => v.id === +clock.dataset.clock)
+    if (!ticket) continue
+    const mood = moodOf(ticket, state.t, state.upgrades)
+    const text =
+      guestLabels[mood] + ' · ' + fmt(Math.ceil(patienceLeft(ticket, state.t, state.upgrades)))
+    if (clock.textContent !== text) clock.textContent = text
+    clock.dataset.mood = mood
   }
   const team = roster()
   if ($('team').innerHTML !== team) $('team').innerHTML = team
@@ -756,6 +782,7 @@ function render() {
 }
 function focusOrder(id) {
   if (!state.orders.some((o) => o.id === id)) return
+  kitchen?.listenTo(id)
   selected = id
   panelKey = ''
   feedback = ''
@@ -774,6 +801,7 @@ function visit(key, pt, open) {
   send('walk', { x: pt().x, z: pt().z })
 }
 function pickWorld(key, data) {
+  if (key === 'customer' && state) return focusOrder(data.order)
   if (!state || !me() || state.status !== 'playing') return
   if (key === 'floor') {
     nextVisit = null
@@ -944,7 +972,7 @@ function inspector(o) {
     row('尺寸', knownTerms(o).size) +
     row('需求', o.gold ? o.sectors.map((v) => v[2]).join(' ＋ ') : knownTerms(o).shape) +
     row('已送配料', o.kits + ' / ' + o.kitNeed) +
-    row('顧客心情', state.t - o.born < o.patience ? '耐心等候' : '期待上菜') +
+    row('顧客說', guestLine(o, moodOf(o, state.t, state.upgrades))) +
     (o.quality ? row('火候', o.quality) : '') +
     row('最近經手', o.lastBy || '準備中') +
     o.tasks
@@ -1023,6 +1051,7 @@ function refreshBench() {
     o?.quality,
     o?.cutIndex,
     o?.preheated,
+    o && moodOf(o, state.t, state.upgrades),
     state.players
       .filter((p) => p.online)
       .map((p) => p.id)
@@ -1487,6 +1516,7 @@ function report() {
             ? (state.satisfaction / state.delivered).toFixed(1) + ' 星'
             : '尚無評價'),
       ) +
+      row('等候逾時離店', state.walkedAway + ' 位') +
       row('店鋪目標', '$' + state.goal) +
       row(
         '店鋪等級 ／ 救援事件',
