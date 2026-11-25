@@ -606,6 +606,11 @@ function render() {
   $('home').hidden = inRoom
   $('lobby').hidden = !lobby
   $('play').hidden = !play
+  const note = $('coachnote')
+  const coaching = play && me()?.coach?.message
+  note.hidden = !coaching
+  if (coaching && note.textContent !== '老師指引：' + coaching)
+    note.textContent = '老師指引：' + coaching
   if (!inRoom) {
     kitchen?.setHost($('heroScene'))
     kitchen?.sync(null, null, null)
@@ -963,7 +968,9 @@ function taskUI(q) {
     : ''
   const entry = q.options
     ? '<div class="row">' + q.options.map((v) => btn(v, 'ans:' + v)).join('') + '</div>'
-    : '<form id="answerform"><label>你的答案<input id="answer" autocomplete="off" required placeholder="' +
+    : '<form id="answerform"><label>你的答案<input id="answer" data-task="' +
+      esc(q.id) +
+      '" autocomplete="off" required placeholder="' +
       (q.kind === 'name' ? '例如 1/2 或 0.5' : '輸入數值') +
       '"></label><span class="dim">' +
       esc(q.unit) +
@@ -1024,7 +1031,6 @@ function refreshBench() {
     o?.tasks.map((t) => [t.id, t.attempts, t.hints, t.done, t.owner].join()).join(),
     p.hand?.id,
     p.hand?.type,
-    p.coach?.id,
     bench === 'upgrade' ? state.money : '',
     state.upgrades.join(),
     o?.stage === 4 && beat >= o?.duration,
@@ -1217,9 +1223,26 @@ function refreshBench() {
     if (!ops.length && !q) body += '<p>' + esc(mission(o, p)) + '</p>'
     body += inspector(o)
   }
-  if (p.coach) body += '<p class="passnote">老師指引：' + esc(p.coach.message) + '</p>'
   body += '<p id="feedback" class="feedback"></p>'
+  const previousInput = $('answer')
+  const draft =
+    previousInput && q && previousInput.dataset.task === q.id
+      ? {
+          value: previousInput.value,
+          focused: document.activeElement === previousInput,
+          start: previousInput.selectionStart,
+          end: previousInput.selectionEnd,
+        }
+      : null
   show('station', 'KITCHEN WORKSTATION', body)
+  const currentInput = $('answer')
+  if (draft && currentInput) {
+    currentInput.value = draft.value
+    if (draft.focused) {
+      currentInput.focus({ preventScroll: true })
+      currentInput.setSelectionRange(draft.start, draft.end)
+    }
+  }
   showFeedback()
   if (q && state.status === 'playing') send('study', { order: o.id, task: q.id })
   if (o && $('dial')) {

@@ -53,7 +53,9 @@ def run(url, output):
         teacher.wait_for_function("""() => document.querySelector('#classlive')?.innerText.includes('找出每條半徑共同的起點')""")
         teacher.locator("#coachtext").fill("沿兩條半徑找交點。")
         teacher.locator('[data-cmd="coach"]').click()
-        student.get_by_text("老師：沿兩條半徑找交點。", exact=True).wait_for()
+        teacher.locator("#classlive").get_by_text("沿兩條半徑找交點。", exact=True).wait_for()
+        student.locator("#coachnote", has_text="老師指引：沿兩條半徑找交點。").wait_for()
+        assert student.evaluate("scrollY") == 0
         if output:
             output.mkdir(parents=True, exist_ok=True)
             teacher.screenshot(path=str(output/"teacher-live.webp"),type="webp",quality=84)

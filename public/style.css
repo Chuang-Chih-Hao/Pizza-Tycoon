@@ -1038,3 +1038,9 @@ html.in-kitchen body {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+
+#coachnote {
+  margin: 0 0 8px;
+  border-left: 3px solid var(--green);
+  overflow-wrap: anywhere;
+}
