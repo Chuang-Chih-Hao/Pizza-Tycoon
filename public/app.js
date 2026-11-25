@@ -11,7 +11,9 @@ import {
 } from './world.js'
 import { guestLabels, guestLine, moodOf, patienceLeft } from './guests.js'
 import { eligible, roleFor, roleNames, craftLabels, availableMath } from './brigade.js'
-import { motions, gesturePath, motionOptions } from './gestures.js'
+import { motions, gesturePath, motionOptions, cutAdvice } from './gestures.js'
+import { activities, activitySeed, handoffs } from './activities.js'
+import { startActivity, paintActivity, activityProgress } from './arcade.js'
 import { startMotion, paintMotion } from './operation.js'
 import { drawDial, attachDial, AudioDesk } from './workbench.js'
 const $ = (id) => document.getElementById(id),
@@ -68,9 +70,32 @@ function liveQuestion(o, p) {
 function openMotion(op, data = {}) {
   const o = state.orders.find((v) => v.id === data.order),
     kind = op === 'event' ? state.event?.kind : op
-  if (!motions[kind] || state.status !== 'playing') return
+  if (state.status !== 'playing') return
+  if (handoffs[op]) {
+    if (['pickup', 'drop', 'addkit', 'serve'].includes(op) && dlg.open) close()
+    send(op, data)
+    return
+  }
+  const arcade = activities[kind]
+  if (!arcade && !motions[kind]) return
+  if (kind === 'cut') {
+    const advice = cutAdvice(o, data.value)
+    if (advice) {
+      const memory = (actionMemory[bench + '-' + selected] ??= {})
+      memory.review = { ...advice, index: o.cutIndex }
+      memory.value = data.value
+      panelKey = ''
+      refreshBench()
+      viewNow()
+      return
+    }
+  }
+  if (kind === 'mouse') send('engage', { eventId: state.event.start })
   const opt = {
     ...motionOptions(op, o, data.value),
+    seed: activitySeed(o, op === 'event' ? state.event : null, me()),
+    cargo: !!me().cargo,
+    flavor: o?.flavor,
     item: me()?.hand?.type || o?.item.type || 'base',
   }
   motionReturn = {
@@ -79,7 +104,7 @@ function openMotion(op, data = {}) {
     op,
     order: data.order ?? (op === 'drop' ? me()?.hand?.id : null),
   }
-  const [title, instruction] = motions[kind]
+  const [title, instruction] = arcade || motions[kind]
   show(
     'motion',
     'HANDS-ON KITCHEN',
@@ -89,28 +114,49 @@ function openMotion(op, data = {}) {
       esc(instruction) +
       '</p><canvas id="gesture" width="780" height="402" tabindex="0" aria-label="' +
       esc(instruction) +
-      '"></canvas><div class="gestureline"><b id="gesturestep"></b><span>拖曳操作　·　鍵盤可用空白鍵抓放、方向鍵移動</span></div><p id="feedback" class="feedback"></p>',
+      '"></canvas><div class="gestureline"><b id="gesturestep"></b><span>' +
+      (arcade ? esc(arcade[2]) : '拖曳操作　·　鍵盤可用空白鍵抓放、方向鍵移動') +
+      '</span></div><p id="feedback" role="status" class="feedback"></p>',
   )
-  motion = { kind, opt, step: 0, pointer: gesturePath(kind, opt)[0], pending: false }
+  motion = {
+    kind,
+    opt,
+    eventId: data.eventId,
+    step: 0,
+    pointer: arcade ? [0.5, 0.5] : gesturePath(kind, opt)[0],
+    pending: false,
+  }
   const progress = (st, msg) => {
     if (!motion) return
     motion.step = st.step
     motion.pointer = st.pointer
-    $('gesturestep').textContent =
-      Math.min(st.step, gesturePath(kind, opt).length) + ' / ' + gesturePath(kind, opt).length
-    if (msg) {
+    $('gesturestep').textContent = arcade
+      ? activityProgress(kind, opt, st)
+      : Math.min(st.step, gesturePath(kind, opt).length) + ' / ' + gesturePath(kind, opt).length
+    if (msg !== undefined) {
       feedback = msg
       showFeedback()
     }
     viewNow()
   }
   progress(motion)
-  motion.live = startMotion($('gesture'), kind, opt, progress, (trace) => {
+  const complete = (proof) => {
     if (!motion) return
     motion.pending = true
-    send(op, { ...data, trace })
+    send(op, { ...data, ...(arcade ? { inputs: proof } : { trace: proof }) })
     audio.play(kind === 'cut' ? 'cut' : kind === 'knead' ? 'knead' : 'place')
-  })
+  }
+  motion.live = arcade
+    ? startActivity(
+        $('gesture'),
+        kind,
+        opt,
+        progress,
+        complete,
+        () => state?.status === 'playing' && !$('guide').open,
+        () => audio.play('place'),
+      )
+    : startMotion($('gesture'), kind, opt, progress, complete)
   $('gesture').focus({ preventScroll: true })
 }
 function afterMotion(result) {
@@ -151,9 +197,11 @@ function viewNow() {
     heading: title || '',
     draft: $('answer')?.value || '',
     angle: dial ? +dial.value : (m?.opt.angle ?? (q ? (360 * q.f[0]) / q.f[1] : 0)),
-    rotation: m?.opt.rotation ?? q?.rotation ?? o?.rotation ?? 0,
+    rotation:
+      m?.opt.rotation ?? (dial && o ? artOptions(o, q, {}).rot : (q?.rotation ?? o?.rotation ?? 0)),
+    target: $('cutreview') ? actionMemory[bench + '-' + selected]?.review?.target : null,
     radius: rad ? +rad.value : o?.r || 0,
-    feedback: $('feedback')?.textContent || '',
+    feedback: $('cutreview')?.textContent || $('feedback')?.textContent || '',
     controls: (dlg.open
       ? [...modal.querySelectorAll('button,select')]
           .filter((el) => !el.closest('details:not([open])'))
@@ -166,6 +214,8 @@ function viewNow() {
       : $('mission')?.textContent || ''
     ).slice(0, 180),
     tool: m?.kind || '',
+    reading: m?.live?.reading || 0,
+    elapsed: Math.floor(m?.live?.elapsed || 0),
     step: m?.live?.step ?? m?.step ?? 0,
     pointer: (m?.live?.pointer ?? m?.pointer)?.map((v) => +v.toFixed(2)) || null,
     options: q?.options?.join('、') || '',
@@ -260,7 +310,7 @@ function send(op, extra = {}) {
     if (op !== 'move') toast('正在重新連線，請稍候。')
     return
   }
-  socket.send(JSON.stringify({ op, nonce: crypto.randomUUID(), ...extra }))
+  socket.send(JSON.stringify({ op, round: state?.round, nonce: crypto.randomUUID(), ...extra }))
 }
 function connect() {
   socket = new WebSocket(
@@ -300,6 +350,7 @@ function connect() {
       } else toast(m.message)
     }
     if (m.type === 'ack') {
+      if (handoffs[m.op]) audio.play('place')
       if (dialogMode === 'motion' && motion?.pending && motionReturn?.op === m.op) afterMotion(true)
       if (m.help) {
         feedback = m.help
@@ -623,6 +674,24 @@ function render() {
     return
   }
   if (lobby) {
+    if (roomState !== 'lobby') {
+      close()
+      if ($('guide').open) $('guide').close()
+      selected = 0
+      nextVisit = null
+      actionMemory = {}
+      cardsKey = ''
+      rosterKey = ''
+      cutFx = 0
+      lastNews = 0
+      lastCoach = 0
+      lastPlayerCount = 0
+      fxId = 0
+      seenView = ''
+      audio.active = false
+      kitchen?.sync(state, identity.id, null)
+    }
+    $('lastreport').hidden = !state.lastReport
     $('roomcode').textContent = state.code
     const key = JSON.stringify(state.players.map((p) => [p.name, p.ready, p.online]))
     if (key !== rosterKey) {
@@ -638,6 +707,7 @@ function render() {
     if ($('ready')) $('ready').textContent = me()?.ready ? '已準備・取消' : '我準備好了'
     return
   }
+  if (roomState === 'lobby' && dialogMode === 'report') close()
   const leaving = state.customers.find((c) => c.id === selected && c.outcome === 'left')
   if (motionReturn?.order && !state.orders.some((o) => o.id === motionReturn.order)) close()
   if (!state.orders.some((o) => o.id === selected)) {
@@ -669,16 +739,29 @@ function render() {
   $('clock').textContent = fmt(state.limit - state.t)
   $('sales').textContent = '$ ' + state.revenue
   $('level').textContent = 'Lv. ' + (state.upgrades.length + 1)
-  $('teacherpanel').hidden = !host()
+  $('teacherpanel').hidden = !host() || state.status === 'ended'
   $('results').hidden = state.status !== 'ended'
-  $('drop').hidden = !p?.hand
+  $('drop').hidden = !p?.hand || state.status !== 'playing'
   $('go').hidden = !p || !o || state.status !== 'playing'
   $('shopgo').hidden = !p || state.status !== 'playing'
-  $('eventgo').hidden = !state.event || !p
+  $('eventgo').hidden = !state.event || !p || state.status !== 'playing'
   $('held').textContent = p
     ? '手持 · ' + (p.cargo ? '補貨箱' : itemNames[p.hand?.type] || '空手')
     : '老師觀察席 · 房號 ' + state.code
-  $('mission').textContent = mission(o, p)
+  const ended = state.status === 'ended'
+  $('keystrip').hidden = !p || ended
+  $('afteractions').hidden = !ended
+  if (ended && roomState !== 'ended')
+    $('afteractions').innerHTML = btn(
+      host() ? '準備下一輪' : '打烊練刀',
+      host() ? 'reopen' : 'practice',
+      true,
+    )
+  $('mission').textContent = ended
+    ? host()
+      ? '本輪已結算。可保留原班與房號再開一輪。'
+      : '本輪已結算。可以練刀，或等老師開下一輪。'
+    : mission(o, p)
   const key =
     state.orders
       .map((o) => [
@@ -763,11 +846,18 @@ function render() {
     }
   if (dialogMode === 'station') refreshBench()
   if (dialogMode === 'event') eventPanel(false)
-  if (dialogMode === 'motion' && motionReturn?.op === 'event' && !state.event) close()
+  if (
+    dialogMode === 'motion' &&
+    motionReturn?.op === 'event' &&
+    motion?.eventId !== state.event?.start
+  )
+    close()
   if (dialogMode === 'admin') updateAdmin()
   if (state.status === 'ended' && roomState !== 'ended') {
     close()
-    toast('本次營業結束，可以查看學習成果。')
+    nextVisit = null
+    if ($('guide').open) $('guide').close()
+    report()
   }
   if (nextVisit && p && state.status === 'playing') {
     const v = nextVisit,
@@ -898,6 +988,17 @@ function sendMovement() {
   })
 }
 window.addEventListener('keydown', (e) => {
+  if (
+    e.key === '?' &&
+    !e.repeat &&
+    !e.target.matches('input,select,textarea,[contenteditable="true"]')
+  ) {
+    e.preventDefault()
+    if ($('guide').open) $('guide').close()
+    else openGuide()
+    return
+  }
+  if ($('guide').open) return
   if (!me() || state.status !== 'playing' || e.target.matches('input,select,textarea')) return
   const k = e.key.toLowerCase()
   if (dlg.open) {
@@ -916,7 +1017,7 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (!e.repeat) {
-    if (k === 'e' || k === ' ') {
+    if (k === 'e' || (k === ' ' && e.target.tagName !== 'BUTTON')) {
       e.preventDefault()
       look()
     }
@@ -1222,7 +1323,13 @@ function refreshBench() {
           dial +
           '<label>刀線角度（°）<input id="degrees" type="number" min="1" max="359" value="' +
           (memory.value ?? 30) +
-          '"></label><p class="dim">拖曳圓周上的刀線，或輸入精確角度。</p></div>'
+          '"></label>' +
+          (memory.review?.index === o.cutIndex
+            ? '<div id="cutreview" role="status"><strong>這一刀先停一下</strong><p>' +
+              esc(memory.review.message) +
+              '</p><small>實線是你的刀線，藍色虛線是目標。</small></div>'
+            : '') +
+          '<p class="dim">拖曳圓周上的刀線，或輸入精確角度。</p></div>'
         ops.push(btn('落刀切片', 'cut', true))
       }
     }
@@ -1277,13 +1384,25 @@ function refreshBench() {
   if (o && $('dial')) {
     const opts = artOptions(o, q, memory),
       c = $('dial')
+    if (!q && bench === 'cut' && memory.review?.index === o.cutIndex)
+      opts.target = memory.review.target
     drawDial(c, opts)
+    const updateReview = (v) => {
+      if (!Number.isFinite(opts.target) || !$('cutreview')) return
+      const advice = cutAdvice(o, v)
+      const node = $('cutreview')
+      node.querySelector('strong').textContent = advice ? '調整刀線' : '刀線已對準'
+      node.querySelector('p').textContent = advice?.message || '兩條線重合了！可以落刀。'
+      node.dataset.ready = String(!advice)
+    }
+    updateReview(opts.deg)
     attachDial(c, opts, (v) => {
       if (q) {
         send('answer', { order: o.id, task: q.id, value: v })
       } else {
         memory.value = v
         opts.deg = v
+        updateReview(v)
         if ($('degrees')) $('degrees').value = v
         drawDial(c, opts)
       }
@@ -1292,6 +1411,7 @@ function refreshBench() {
       $('degrees').oninput = (e) => {
         memory.value = e.target.value
         opts.deg = Math.max(0, Math.min(360, +e.target.value))
+        updateReview(+e.target.value)
         drawDial(c, opts)
       }
     if ($('radius'))
@@ -1325,39 +1445,14 @@ function eventPanel(force) {
     return
   }
   const key = e.kind + '-' + e.step + '-' + !!me().cargo
-  if (!force && panelKey === key) {
-    if ($('beat')) $('beat').style.left = (Math.sin(state.t * 3) + 1) * 50 + '%'
-    return
-  }
+  if (!force && panelKey === key) return
   panelKey = key
-  const dlgText = {
-    mouse: '追到老鼠身邊後，伸手攔住牠。',
-    leak: '在水漬旁拖地。隊友可以一起幫忙。',
-    delivery: me().cargo ? '把補貨箱搬到冷藏收貨點。' : '到前方收貨區搶救一箱食材。',
-    repair: '選取自己的亮燈線路，把插頭拖回對應的插座。',
-    duel: '握住擀麵棍，推過彎道，與其他廚師合力完成接力。',
-  }[e.kind]
-  const op =
-    e.kind === 'repair'
-      ? [0, 1, 2]
-          .map((a) =>
-            btn(
-              (e.sequence[me().skin % 3] === a ? '亮燈 · ' : '') + ['紅', '黃', '綠'][a],
-              'event:' + a,
-              e.sequence[me().skin % 3] === a,
-            ),
-          )
-          .join('')
-      : btn(
-          {
-            mouse: '攔住老鼠',
-            leak: '拖地一次',
-            delivery: me().cargo ? '送達補貨箱' : '搬起補貨箱',
-            duel: '按壓麵團',
-          }[e.kind],
-          'event:go',
-          true,
-        )
+  const dlgText = activities[e.kind][1]
+  const op = btn(
+    e.kind === 'delivery' && me().cargo ? '送進冷藏貨架' : activities[e.kind][0],
+    'event:go',
+    true,
+  )
   show(
     'event',
     'KITCHEN EVENT',
@@ -1459,7 +1554,12 @@ function updateAdmin() {
         row('選項', v.options || q.unit || '輸入數字')
       : '') +
     (v.tool
-      ? row('工具進度', motions[v.tool][0] + ' · ' + v.step + '/' + gesturePath(v.tool).length)
+      ? row(
+          '工具進度',
+          activities[v.tool]
+            ? activities[v.tool][0]
+            : motions[v.tool][0] + ' · ' + v.step + '/' + gesturePath(v.tool).length,
+        )
       : '') +
     (v.controls ? row('可用操作', v.controls) : '') +
     (v.feedback ? row('畫面回饋', v.feedback) : '') +
@@ -1485,7 +1585,18 @@ function updateAdmin() {
   }
   const canvas = $('watchcanvas')
   canvas.hidden = !v.tool && !q && !(v.station === 'cut' || v.station === 'dough')
-  if (v.tool)
+  if (activities[v.tool])
+    paintActivity(
+      canvas,
+      v.tool,
+      {
+        seed: activitySeed(o, ['flour', 'kit'].includes(v.tool) ? null : state.event, p),
+        cargo: !!p.cargo,
+        flavor: o?.flavor,
+      },
+      v,
+    )
+  else if (v.tool)
     paintMotion(
       canvas,
       v.tool,
@@ -1494,43 +1605,155 @@ function updateAdmin() {
     )
   else if (!canvas.hidden)
     drawDial(canvas, {
-      deg: v.angle || 30,
+      deg: v.angle ?? 30,
+      target: v.target ?? undefined,
       rot: v.rotation,
       r: v.radius || 10,
       kind: q?.kind || (v.station === 'cut' ? 'cut' : 'dough'),
       flavor: o?.flavor,
     })
 }
-function report() {
-  const list = host() ? state.players : [me()].filter(Boolean)
+function openGuide() {
+  const g = $('guide')
+  if (g.open) return
+  const motionTitle = motion && (activities[motion.kind] || motions[motion.kind])
+  let tip = '在走道點地板走路，或點設備自動走過去。'
+  if (state?.status === 'ended') tip = '打烊後可以查看成果。學生可練刀，老師可回準備室開下一輪。'
+  if (dialogMode === 'station')
+    tip =
+      bench === 'cut'
+        ? '切割桌：拖動刀線或輸入角度，按「落刀切片」後從圓心沿線推刀。'
+        : '工作桌：點操作按鈕。可用 Tab 選擇按鈕，Enter 確認。'
+  if (dialogMode === 'practice') tip = '練刀：拖曳披薩上的刀線或輸入角度，再按「檢查刀線」。'
+  if (motionTitle)
+    tip =
+      motionTitle[0] +
+      '：' +
+      motionTitle[1] +
+      ' ' +
+      (activities[motion.kind]?.[2] || '空白鍵抓放，方向鍵移動工具。')
+  $('guidecurrent').textContent = tip
+  if (walkKeys.size) {
+    walkKeys.clear()
+    if (me() && state?.status === 'playing') sendMovement()
+  }
+  g.showModal()
+  $('guideclose').focus({ preventScroll: true })
+}
+document.querySelectorAll('[data-guide]').forEach((b) => (b.onclick = openGuide))
+$('guideclose').onclick = $('guidereturn').onclick = () => $('guide').close()
+
+const practiceSlices = [
+  [1, 6],
+  [1, 4],
+  [1, 3],
+  [3, 8],
+  [1, 2],
+  [2, 3],
+  [3, 4],
+  [5, 6],
+]
+let lastSlice = -1
+function practice() {
+  if (state?.status !== 'ended') return
+  lastSlice =
+    (lastSlice + 1 + Math.floor(Math.random() * (practiceSlices.length - 1))) %
+    practiceSlices.length
+  const f = practiceSlices[lastSlice]
+  const opt = {
+    kind: 'cut',
+    deg: 30,
+    rot: 45 * Math.floor(Math.random() * 8),
+    flavor: lastSlice % 6,
+  }
+  show(
+    'practice',
+    'AFTER HOURS',
+    '<h2>打烊練刀</h2><p>試著切出 <strong>' +
+      f[0] +
+      '/' +
+      f[1] +
+      ' 圓</strong>。可以拖動刀線，或輸入角度。</p>' +
+      dial +
+      '<label>刀線角度（°）<input id="practiceangle" type="number" min="1" max="359" value="30"></label><p id="practicefeedback" role="status"></p>' +
+      '<div class="tools"><button id="practicecheck" class="primary">檢查刀線</button>' +
+      btn('回到本輪成果', 'report') +
+      '</div>',
+  )
+  const canvas = $('dial'),
+    field = $('practiceangle'),
+    check = $('practicecheck'),
+    message = $('practicefeedback')
+  function adjust(n) {
+    opt.deg = Math.min(359, Math.max(0, +n || 0))
+    drawDial(canvas, opt)
+  }
+  attachDial(canvas, opt, (v) => {
+    field.value = v
+    adjust(v)
+  })
+  field.oninput = () => adjust(field.value)
+  drawDial(canvas, opt)
+  check.onclick = () => {
+    const miss = cutAdvice({ f }, field.value)
+    opt.target = (360 * f[0]) / f[1]
+    drawDial(canvas, opt)
+    if (miss) {
+      message.textContent =
+        miss.angle === undefined ? '請輸入 1～359°。' : miss.message.replace('訂單要', '目標是')
+      return
+    }
+    message.textContent = '切對了！' + f[0] + '/' + f[1] + ' 圓是 ' + opt.target + '°。'
+    field.disabled = true
+    canvas.onpointerdown = canvas.onpointermove = null
+    check.textContent = '下一片'
+    check.onclick = practice
+    audio.play('cut')
+  }
+}
+function report(previous = false) {
+  const data = previous ? state.lastReport : state
+  if (!data) return
+  const list = host() ? data.players : data.players.filter((p) => p.id === identity.id)
   show(
     'report',
     'SERVICE REPORT',
-    '<h2>本店營業成果</h2>' +
-      row('累計營業額 ／ 公款', '$' + state.revenue + ' ／ $' + state.money) +
+    (previous ? '<h2>上一輪營業成果</h2>' : '<h2>本店營業成果</h2>') +
+      (!previous && data.status === 'ended'
+        ? '<p class="roundnote">第 ' +
+          data.round +
+          ' 輪已打烊。' +
+          (host()
+            ? '全班可沿用房號準備下一輪，上一輪成果會保留在準備室。'
+            : '可以自由練刀。老師開下一輪時，全班會一起回到準備室。') +
+          '</p><div class="roundbuttons">' +
+          (host() ? btn('準備下一輪', 'reopen', true) : btn('打烊練刀', 'practice', true)) +
+          (host() ? btn('匯出學習 CSV', 'csv') : '') +
+          btn('返回首頁', 'leave') +
+          '</div>'
+        : '') +
+      row('累計營業額 ／ 公款', '$' + data.revenue + ' ／ $' + data.money) +
       row(
         '完成訂單 ／ 平均評價',
-        state.delivered +
+        data.delivered +
           ' 份 ／ ' +
-          (state.delivered
-            ? (state.satisfaction / state.delivered).toFixed(1) + ' 星'
-            : '尚無評價'),
+          (data.delivered ? (data.satisfaction / data.delivered).toFixed(1) + ' 星' : '尚無評價'),
       ) +
-      row('等候逾時離店', state.walkedAway + ' 位') +
-      row('店鋪目標', '$' + state.goal) +
+      row('等候逾時離店', data.walkedAway + ' 位') +
+      row('店鋪目標', '$' + data.goal) +
       row(
         '店鋪等級 ／ 救援事件',
-        'Lv.' + (state.upgrades.length + 1) + ' ／ ' + state.finishedEvents + ' 件',
+        'Lv.' + (data.upgrades.length + 1) + ' ／ ' + data.finishedEvents + ' 件',
       ) +
       row(
         '升級設備',
         catalog
-          .filter((a) => state.upgrades.includes(a[0]))
+          .filter((a) => data.upgrades.includes(a[0]))
           .map((a) => a[1])
           .join('、') || '尚未升級',
       ) +
-      row('招牌食譜', state.recipes.join('、') || '尚未解鎖') +
-      row('黃金披薩', state.golden) +
+      row('招牌食譜', data.recipes.join('、') || '尚未解鎖') +
+      row('黃金披薩', data.golden) +
       list
         .map((p) => {
           const st = p.stats,
@@ -1570,18 +1793,20 @@ function report() {
           )
         })
         .join('') +
-      (host() ? btn('匯出學習 CSV', 'csv') : '') +
+      (host() && data.status !== 'ended' ? btn('匯出學習 CSV', previous ? 'prevcsv' : 'csv') : '') +
       '<div class="tools">' +
-      btn('回到廚房', 'close') +
-      (state.status === 'ended' ? btn('返回首頁', 'leave') : '') +
+      btn(
+        previous ? '回到準備室' : data.status === 'ended' ? '查看打烊店面' : '回到廚房',
+        'close',
+      ) +
       '</div>',
   )
 }
-function csv() {
+function csv(data = state) {
   const rows = [
     ['廚師', '題型', '已作答', '首次正確', '完成', '答錯次數', '提示', '料理貢獻', '事件貢獻'],
   ]
-  for (const p of state.players)
+  for (const p of data.players)
     for (const [k, n] of Object.entries(skillName)) {
       const a = p.stats.types[k] || {}
       rows.push([
@@ -1609,11 +1834,11 @@ function csv() {
   )
   const a = document.createElement('a')
   a.href = url
-  a.download = 'GoldenSlice-' + state.code + '.csv'
+  a.download = 'GoldenSlice-' + data.code + '-R' + data.round + '.csv'
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-$('results').onclick = report
+$('results').onclick = () => report()
 $('teacherpanel').onclick = admin
 document.addEventListener('click', (e) => {
   const b = e.target.closest('button')
@@ -1673,6 +1898,10 @@ document.addEventListener('click', (e) => {
     return
   }
   if (c === 'admin') return admin()
+  if (c === 'reopen') return send('reopen')
+  if (c === 'previous') return report(true)
+  if (c === 'prevcsv' && state.lastReport) return csv(state.lastReport)
+  if (c === 'practice') return practice()
   if (c === 'report') return report()
   if (c === 'csv') return csv()
   if (c === 'close') return close()
@@ -1721,7 +1950,7 @@ document.addEventListener('click', (e) => {
         : c === 'cut'
           ? { value: +$('degrees').value }
           : {}
-  if (motions[c]) return openMotion(c, { order: o.id, ...extra })
+  if (motions[c] || handoffs[c] || activities[c]) return openMotion(c, { order: o.id, ...extra })
   send(c, { order: o.id, ...extra })
 })
 connect()

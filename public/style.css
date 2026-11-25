@@ -1106,3 +1106,32 @@ html.in-kitchen body {
 .ticket .guest-clock[data-mood='lastCall'] {
   color: #9b4036;
 }
+#cutreview {margin:8px 0;padding:8px 12px;border-left:4px solid #ad583e;background:#fff1dc;color:#703b2b;border-radius:5px}
+#modal #cutreview p {margin:3px 0;color:inherit}
+#cutreview[data-ready=true] {border-color:#568467;background:#e8f1e3;color:#35563f}
+
+kbd {
+  display: inline-block; padding: .08em .35em; border-radius: 4px; border: 1px solid #9b9a7f;
+  border-bottom-width: 2px; background: #fffdf1; color: #324438; font: 700 .88em system-ui,sans-serif;
+}
+.topright .howto, .dialoghelp { color: #284d41; background: #e6edda; border-color: #99ab92; white-space: nowrap; }
+.modalhead .dialoghelp { margin-inline: auto 6px; padding: 4px 8px; font-size: 13px; }
+.lower .keystrip { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; font-weight: 650; color:#384a3c; }
+.keystrip span { white-space: nowrap; }
+.keylist { display: grid; grid-template-columns: max-content 1fr; gap: 0 16px; margin-block: 1em; }
+.keylist dt,.keylist dd { margin:0; padding-block: .8em; border-bottom:1px solid var(--line); }
+.guidecurrent,.roundnote,.gestureline { background:#eaf0de; border-radius:8px; padding:9px 12px; color:#344b3d; }
+.gestureline span { color:#344b3d; font-weight:650; }
+#lastreport { margin-top: .8em; }
+#afteractions:not([hidden]),.roundbuttons { display:flex; flex-wrap:wrap; gap:6px; }
+#afteractions:not([hidden]) { width:auto; }
+#practicefeedback { min-height:1.6em; }
+@media(max-width:640px) {
+  .topright { gap:5px; }
+  .topright .howto { font-size:12px; padding:5px 7px; }
+  .lower .keystrip { font-size:11px; gap:3px 7px; }
+  .keystrip .sprint { display:none; }
+  .keylist { grid-template-columns:1fr; }
+  .keylist dt { border:0; padding-bottom:0; }
+  .keylist dd { padding-top:.3em; }
+}

@@ -1,6 +1,7 @@
 import * as T from 'three'
 import { RoundedBoxGeometry } from '/vendor/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from '/vendor/examples/jsm/utils/BufferGeometryUtils.js'
+import { guestDoor, queueX } from './guests.js'
 import { skins, stations } from './world.js'
 export const group = () => new T.Group()
 const materials = new Map(),
@@ -432,21 +433,47 @@ export function shell() {
         y === 0 ? '#bc7760' : (i + y) % 3 ? '#f0ddbe' : '#f8e8ca',
         0.018,
       )
-  for (let j = 0; j < 12; j++)
+  const door = guestDoor
+  for (let j = 0; j < 12; j++) {
+    const z = (j - 5.5) * 0.73 + 0.15
+    if (z > door.nearZ && z < door.farZ) continue
     for (let y = 0; y < 3; y++)
       box(
         p,
-        -6,
+        door.wallX,
         0.24 + y * 0.46,
-        (j - 5.5) * 0.73 + 0.15,
+        z,
         0.2,
         0.45,
         0.719,
         y === 0 ? '#bc7760' : (j + y) % 3 ? '#f2dfc1' : '#f9e9cc',
         0.018,
       )
+  }
   box(p, 0, 1.91, -4.22, 12.15, 0.12, 0.31, '#d9b58c')
-  box(p, -6, 1.43, 0.17, 0.32, 0.11, 8.91, '#d9b58c')
+  const wallStart = -4.285
+  box(
+    p,
+    door.wallX,
+    1.43,
+    (wallStart + door.nearZ) / 2,
+    0.32,
+    0.11,
+    door.nearZ - wallStart,
+    '#d9b58c',
+  )
+  const center = (door.nearZ + door.farZ) / 2,
+    width = door.farZ - door.nearZ
+  box(p, -7.08, -0.43, center, 2.25, 0.82, width + 0.4, '#ac846c', 0.09)
+  box(p, -7.08, -0.04, center, 2.25, 0.08, width + 0.4, '#dfc9ac')
+  box(p, door.wallX, 0.012, center, 1.02, 0.024, width - 0.18, '#759585')
+  for (const z of [door.nearZ, door.farZ]) {
+    box(p, door.wallX, 0.98, z, 0.21, 1.96, 0.11, edge)
+    box(p, door.wallX, 0.18, z, 0.26, 0.36, 0.15, '#b78b62')
+  }
+  box(p, door.wallX, 1.96, center, 0.24, 0.14, width + 0.16, edge)
+  const entrance = tag(p, '入口', door.wallX + 0.13, 1.96, center, 0.78, 0.21, '#3a6759')
+  entrance.rotation.y = Math.PI / 2
   tag(p, 'GOLDEN  SLICE', -0.3, 1.52, -4.08, 2.68, 0.55, edge)
   awning(p, -3.05, 1.98, -4.01, 2.35)
   for (let i = 0; i < 12; i++) box(p, (i - 5.5) * 0.98, -0.43, 4.65, 0.065, 0.38, 0.035, '#cf8970')
@@ -455,12 +482,7 @@ export function shell() {
     herb(p, 5.45 - i * 0.42, 0, 3.85, 0.9)
     herb(p, -5.45, 1.5, -2.6 + i * 0.45, 0.68)
   }
-  for (const x of [-4.65, -1.42]) {
-    cyl(p, x, 0.34, 3.81, 0.07, 0.65, '#9c7145')
-    ball(p, x, 0.69, 3.81, 0.11, 0.1, 0.11, '#c69b50')
-  }
-  rod(p, [-4.6, 0.61, 3.81], [-3.95, 0.49, 3.81], 0.035, '#a34533')
-  rod(p, [-3.95, 0.49, 3.81], [-3.4, 0.6, 3.81], 0.035, '#a34533')
+  for (let i = 0; i < 5; i++) box(p, queueX(i), 0.007, door.inZ, 0.42, 0.014, 0.07, '#c69765', 0)
   // The back wall carries the tools used at the adjacent prep stations.
   rod(p, [1.12, 1.53, -4.06], [3.36, 1.53, -4.06], 0.033, steel)
   for (let i = 0; i < 4; i++) {

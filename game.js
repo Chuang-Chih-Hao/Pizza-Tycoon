@@ -12,7 +12,8 @@ import {
 } from './public/world.js'
 import { eligible, availableMath, roleFor } from './public/brigade.js'
 import { patienceLeft, moodOf } from './public/guests.js'
-import { motions, checkTrace, motionOptions } from './public/gestures.js'
+import { activities, activitySeed, validActivity } from './public/activities.js'
+import { motions, checkTrace, motionOptions, cutAdvice } from './public/gestures.js'
 import { makeTask, pick, fractions, geometry, correct, guidance } from './math.js'
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const secret = () => randomBytes(20).toString('hex')
@@ -34,6 +35,10 @@ function need(ok, msg) {
 export function room(code) {
   return {
     code,
+    round: 1,
+    nextGuestAt: 0,
+    trophy: undefined,
+    lastEvent: null,
     host: secret(),
     players: [],
     status: 'lobby',
@@ -64,6 +69,31 @@ export function room(code) {
     feedbackId: 0,
   }
 }
+function shiftPlayer(lane) {
+  return {
+    x: -2 + lane,
+    z: -0.75,
+    heading: 0,
+    ready: false,
+    hand: null,
+    action: '待機',
+    animUntil: 0,
+    lastStep: 0,
+    move: [0, 0],
+    path: [],
+    running: false,
+    stats: newStats(),
+    seenTasks: new Set(),
+    cargo: false,
+    studying: null,
+    engaged: null,
+    coach: null,
+    view: null,
+    viewAt: 0,
+    viewKey: '',
+    lastResult: '',
+  }
+}
 export function addPlayer(r, name, skin) {
   need(r.status !== 'ended', '這家店已打烊。')
   need(r.players.length < 4, '四個廚師名額已滿。')
@@ -78,20 +108,8 @@ export function addPlayer(r, name, skin) {
     name,
     lane: r.players.length,
     skin: clamp(Math.floor(Number(skin) || 0), 0, 5),
-    x: -2 + r.players.length,
-    z: -0.75,
-    heading: 0,
     online: true,
-    ready: false,
-    hand: null,
-    action: '待機',
-    animUntil: 0,
-    lastStep: 0,
-    move: [0, 0],
-    path: [],
-    running: false,
-    stats: newStats(),
-    seenTasks: new Set(),
+    ...shiftPlayer(r.players.length),
     inputs: new Set(),
   }
   r.players.push(p)
@@ -180,6 +198,7 @@ export function newOrder(r, gold = false) {
     cuts: [],
     cutIndex: 0,
     ingredients: [],
+    entryAt: Math.max(r.t, r.nextGuestAt ?? 0),
     born: r.t,
     patience: (gold ? 270 : 200) + 65 * (4 - count(r)) + 18 * r.orders.length,
     lastBy: '',
@@ -236,6 +255,7 @@ export function newOrder(r, gold = false) {
   }
   if (!gold && online(r).length === 4 && id === 1 && o.tasks[0]?.station === 'cut')
     o.tasks[0].owner = online(r).find((p) => roleFor(o, r.players, p.id) === 3).id
+  r.nextGuestAt = o.entryAt + 0.66
   r.orders.push(o)
   fx(r, 'arrival', { order: id })
   return o
@@ -335,21 +355,26 @@ const makeEvent = (kind, r) => {
     contributions: {},
     lastBy: {},
     start: r.t,
-    until: r.t + 55,
-    sequence: [0, 1, 2].sort(() => Math.random() - 0.5),
+    until: r.t + { mouse: 70, leak: 65, delivery: 90, repair: 75, duel: 70 }[kind],
+
     last: -1,
   }
 }
 function playEvent(r, p, m) {
   const e = r.event
-  need(e && near(p, eventPoint(e, r.t, p)), '請前往你負責的事件位置。')
+  const atMouse =
+    e?.kind === 'mouse' &&
+    p.engaged?.id === e.start &&
+    r.t - p.engaged.at < 18 &&
+    Math.hypot(p.x - p.engaged.x, p.z - p.engaged.z) < 0.4
+  need(e && (atMouse || near(p, eventPoint(e, r.t, p))), '請前往你負責的事件位置。')
   need(m.eventId === e.start, '這場事件已結束。')
   need(r.t - (e.lastBy[p.id] ?? -2) > 0.22, '稍候再接下一棒。')
   const required = Math.min(e.crewGoal, count(r)),
     others = online(r).filter((c) => !e.contributions[c.id])
   if (e.contributions[p.id] && others.length && Object.keys(e.contributions).length < required)
     throw Error('隊友還有一棒：' + others.map((c) => c.name).join('、'))
-  if (e.kind === 'repair') need(m.value === e.sequence[p.skin % 3], '請接到自己燈號對應的插座。')
+
   if (e.kind === 'delivery' && !p.cargo) {
     need(!p.hand, '請先放下手上物品。')
     p.cargo = true
@@ -361,7 +386,7 @@ function playEvent(r, p, m) {
   e.lastBy[p.id] = r.t
   e.contributions[p.id] = (e.contributions[p.id] || 0) + 1
   e.step++
-  action(p, r, motions[e.kind][0])
+  action(p, r, activities[e.kind][0])
   p.stats.events++
   fx(r, 'rescue', { who: p.id })
   const target = Math.max(2, required)
@@ -384,6 +409,29 @@ function startGold(r) {
   newOrder(r, true)
   announce(r, '黃金訂單抵達！大家一起完成不同口味的扇形。')
 }
+function reopen(r) {
+  need(r.status === 'ended', '打烊結算後才能準備下一輪。')
+  const summary = {}
+  for (const field of [
+    'round',
+    'code',
+    'revenue',
+    'money',
+    'delivered',
+    'satisfaction',
+    'walkedAway',
+    'goal',
+    'upgrades',
+    'finishedEvents',
+    'recipes',
+    'golden',
+  ])
+    summary[field] = r[field]
+  summary.players = r.players.map(({ id, name, stats }) => ({ id, name, stats }))
+  const { host, players, settings, round } = r
+  Object.assign(r, room(r.code), { host, players, settings, round: round + 1, lastReport: summary })
+  for (const p of players) Object.assign(p, shiftPlayer(p.lane))
+}
 function teacher(r, m) {
   switch (m.op) {
     case 'settings': {
@@ -396,6 +444,8 @@ function teacher(r, m) {
       if ([0.5, 1, 2].includes(s.pace)) r.settings.pace = s.pace
       return
     }
+    case 'reopen':
+      return reopen(r)
     case 'start':
       need(r.status === 'lobby' && online(r).length, '請先讓至少一位學生加入。')
       r.status = 'playing'
@@ -542,7 +592,10 @@ export function command(r, p, m) {
       draft: text('draft', 64),
       feedback: text('feedback', 180),
       controls: text('controls', 180),
-      tool: motions[v.tool] ? v.tool : '',
+      tool: Object.hasOwn(motions, v.tool) || Object.hasOwn(activities, v.tool) ? v.tool : '',
+      target: Number.isFinite(v.target) ? clamp(v.target, 1, 359) : null,
+      reading: clamp(+v.reading || 0, 0, 1000),
+      elapsed: clamp(+v.elapsed || 0, 0, 180000),
       step: Math.min(10, Math.max(0, +v.step || 0)),
       pointer: Array.isArray(v.pointer)
         ? v.pointer.slice(0, 2).map((x) => clamp(Number(x) || 0, 0, 1))
@@ -559,7 +612,7 @@ export function command(r, p, m) {
       p.viewAt = r.t
     }
     if (r.status === 'playing' && view.tool) {
-      p.action = motions[view.tool][0]
+      p.action = (activities[view.tool] || motions[view.tool])[0]
       p.animUntil = r.t + 0.6
     }
     return
@@ -570,10 +623,23 @@ export function command(r, p, m) {
     return
   }
   need(r.status === 'playing', '目前不在營業中。')
+  if (m.op === 'engage') {
+    const e = r.event
+    need(
+      e?.kind === 'mouse' && m.eventId === e.start && near(p, eventPoint(e, r.t, p)),
+      '請先靠近鼠洞。',
+    )
+    p.engaged = { id: e.start, at: r.t, x: p.x, z: p.z }
+    return
+  }
   const ticket = r.orders.find((o) => o.id === m.order)
   if (!ticket && r.customers.some((c) => c.id === m.order && c.outcome === 'left'))
     throw Error('這位客人已經離店，請改做其他訂單。')
   const motion = m.op === 'event' ? r.event?.kind : m.op
+  if (Object.hasOwn(activities, motion)) {
+    const seed = activitySeed(ticket, m.op === 'event' ? r.event : null, p)
+    need(validActivity(motion, seed, m.inputs), '這次操作尚未完成，請再試一次。')
+  }
   if (motions[motion])
     need(
       checkTrace(motion, m.trace, motionOptions(m.op, ticket, m.value)),
@@ -790,7 +856,8 @@ export function command(r, p, m) {
     )
     const f = o.gold ? o.sectors[o.cutIndex] : o.f
     const deg = geometry(o.r, f).angle
-    need(Math.abs(Number(m.value) - deg) < 0.51, '切線尚未對準，從起始線順時針量角。')
+    const advice = cutAdvice(o, m.value)
+    if (advice) throw Error(advice.message)
     o.leads.cut = p.id
     o.cuts.push(deg)
     o.cutIndex++
@@ -886,10 +953,18 @@ export function tick(r, dt) {
   }
 }
 export function snapshot(r, viewer) {
-  const { host, seen, hostInputs, emptySince, ...state } = r
+  const { host, seen, hostInputs, emptySince, lastReport, ...state } = r
   return {
     ...state,
     phase: phase(r),
+    ...(lastReport && r.status === 'lobby'
+      ? {
+          lastReport: {
+            ...lastReport,
+            players: lastReport.players.filter((p) => !viewer || p.id === viewer.id),
+          },
+        }
+      : {}),
     players: r.players.map((p) => ({
       id: p.id,
       name: p.name,

@@ -81,7 +81,11 @@ def run(url, output):
                 return math.hypot(dx, dz) < 0.88
             receive_until(socket, arrived)
             trace = student.evaluate("async key => (await import('/gestures.js')).gesturePath(key)", op)
-            send(socket, op, order=order, trace=trace)
+            ticket = state["orders"][0]
+            seed = (ticket["id"]*7 + ticket["flavor"]*3 + ticket["kits"]) % 997
+            picks = [seed%3,(seed+1+(seed//3)%2)%3]
+            inputs = [round((75+seed%5*10)/0.062)] if op=="flour" else picks
+            send(socket, op, order=order, trace=trace, inputs=inputs)
             receive_until(socket, lambda m: m["type"] == "ack" and m["op"] == op)
         student.locator('[data-cmd="ans:圓心"]').click()
         student.locator('#close').click()
@@ -90,7 +94,21 @@ def run(url, output):
         teacher.locator('[data-cmd="resume"]').click()
         teacher.locator('[data-cmd="endconfirm"]').click()
         teacher.locator('[data-cmd="end"]').click()
-        student.locator('#results').wait_for()
+        teacher.get_by_role('heading',name='本店營業成果').wait_for()
+        student.get_by_role('heading',name='本店營業成果').wait_for()
+        with teacher.expect_download() as item:
+            teacher.get_by_role('button',name='匯出學習 CSV').click()
+        assert item.value.suggested_filename.endswith('-R1.csv')
+        student.locator('#modal [data-cmd="practice"]').click()
+        teacher.locator('#modal [data-cmd="reopen"]').click()
+        for page in [teacher,student]:
+            page.locator('#roomcode').wait_for()
+            assert page.locator('#roomcode').inner_text()==code
+            page.locator('#lastreport').click()
+            page.get_by_role('heading',name='上一輪營業成果').wait_for()
+            page.locator('#close').click()
+        teacher.locator('[data-cmd="start"]').click()
+        student.locator('#go').wait_for()
         assert not errors,errors
         print("Passed: 4 concurrent workstations, teacher live question, wrong answer and private coaching, pause and settlement.")
 

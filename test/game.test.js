@@ -1,5 +1,25 @@
-import { motions, gesturePath, checkTrace, motionOptions } from '../public/gestures.js'
-import { moodOf, guestLine, patienceLeft } from '../public/guests.js'
+import {
+  activities,
+  activitySeed,
+  validActivity,
+  flourTarget,
+  kitBins,
+  cargoBin,
+  powerStart,
+  flipPower,
+  beatPeriod,
+  mouseAt,
+} from '../public/activities.js'
+import { cutAdvice, motions, gesturePath, checkTrace, motionOptions } from '../public/gestures.js'
+import {
+  guestDoor,
+  arrivalPose,
+  departurePose,
+  queueX,
+  moodOf,
+  guestLine,
+  patienceLeft,
+} from '../public/guests.js'
 import { eligible } from '../public/brigade.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -28,9 +48,33 @@ function walk(r, p, s) {
   assert.ok(near(p, s), 'station is reachable')
   command(r, p, { op: 'move', x: 0, z: 0 })
 }
+function activityInputs(key, seed) {
+  if (key === 'flour') return [Math.round(flourTarget(seed) / 0.062)]
+  if (key === 'kit') return kitBins(seed)
+  if (key === 'delivery') return [cargoBin(seed)]
+  if (key === 'mouse')
+    return [610, 1830].map((ms) => {
+      const m = mouseAt(ms, seed)
+      return [ms, m.x, m.y]
+    })
+  if (key === 'leak') return [0, 45, 90, 135, 180, -135, -90, -45, 0]
+  if (key === 'duel') return [1, 2, 3].map((n) => n * beatPeriod(seed))
+  if (key === 'repair') {
+    for (let mask = 1; mask < 8; mask++) {
+      const keys = [0, 1, 2].filter((i) => mask & (1 << i))
+      if (keys.reduce(flipPower, powerStart(seed)) === 7) return keys
+    }
+  }
+}
 function act(r, p, o, op, extra = {}) {
   const trace = motions[op] ? gesturePath(op, motionOptions(op, o, extra.value)) : undefined
-  return command(r, p, { op, order: o.id, trace, ...extra })
+  return command(r, p, {
+    op,
+    order: o.id,
+    trace,
+    inputs: activityInputs(op, activitySeed(o, null, p)),
+    ...extra,
+  })
 }
 function tasks(r, o, st) {
   for (const q of o.tasks.filter((t) => t.station === st && !t.done)) {
@@ -184,8 +228,7 @@ test('five active events have distinct interactions, supply and a single complet
           command(r, chef, {
             op: 'event',
             eventId: e.start,
-            value: e.sequence[chef.skin % 3],
-            trace: gesturePath(kind),
+            inputs: activityInputs(kind, activitySeed(null, e, chef)),
           })
       }
       tick(r, 0.05)
@@ -302,7 +345,7 @@ test('work requires a continuous gesture and a different online chef until the w
     [a, b, c, d] = r.players,
     o = r.orders[0]
   walk(r, a, stations.pantry)
-  assert.throws(() => command(r, a, { op: 'flour', order: o.id }), /沿標記/)
+  assert.throws(() => command(r, a, { op: 'flour', order: o.id }), /操作尚未/)
   assert.equal(o.stage, 0)
   for (const [key, spec] of Object.entries(motions)) {
     const path = gesturePath(key, { angle: 270, rotation: 60 })
@@ -403,4 +446,108 @@ test('payment just before the deadline wins once; a late golden order earns noth
   assert.equal(r.golden, '客人已離店')
   assert.equal(r.trophy, undefined)
   assert.deepEqual([r.money, r.revenue, r.delivered], [money, money, 1])
+})
+
+test('all five queue positions and both departure outcomes pass through the guest doorway', () => {
+  const d = guestDoor
+  for (let slot = 0; slot < 5; slot++) {
+    const dest = arrivalPose(slot, 9)
+    assert.equal(dest.x, queueX(slot))
+    assert.ok(dest.x > d.wallX + 0.45)
+    const routes = [(t) => arrivalPose(slot, t), (t) => departurePose(dest, t)]
+    for (const route of routes) {
+      const pts = Array.from({ length: 121 }, (_, i) => route(i / 20))
+      const crossing = pts.filter((p) => Math.abs(p.x - d.wallX) < 0.36)
+      assert.ok(crossing.length)
+      for (const p of crossing)
+        assert.ok(p.z - 0.38 > d.nearZ + 0.055 && p.z + 0.38 < d.farZ - 0.055)
+      for (const [i, p] of pts.entries())
+        if (i) assert.ok(Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) < 0.09)
+    }
+    assert.equal(departurePose(dest, 5.95).x, d.streetX)
+  }
+})
+test('tool challenges validate their own rules for every variation', () => {
+  for (let seed = 0; seed < 30; seed++)
+    for (const key of Object.keys(activities)) {
+      assert.equal(validActivity(key, seed, activityInputs(key, seed)), true, key)
+      for (const invalid of [
+        [],
+        [
+          [0.2, 0.5],
+          [0.8, 0.5],
+        ],
+        [-12],
+        null,
+      ])
+        assert.equal(validActivity(key, seed, invalid), false, key)
+    }
+  assert.equal(validActivity('duel', 0, [850, 850, 850]), false)
+  assert.equal(validActivity('leak', 0, [0, 140, 30, 140, 0, 150, 20]), false)
+  assert.equal(validActivity('flour', 0, [10]), false)
+})
+test('cut coaching reports both directions, major sectors and the current golden segment', () => {
+  const o = { f: [3, 4] }
+  assert.match(cutAdvice(o, 210).message, /順時針轉 60/)
+  assert.match(cutAdvice(o, 300).message, /逆時針轉 30/)
+  assert.equal(cutAdvice(o, 270), null)
+  assert.equal(
+    cutAdvice(
+      {
+        gold: true,
+        cutIndex: 1,
+        sectors: [
+          [1, 4],
+          [1, 2],
+        ],
+      },
+      90,
+    ).target,
+    180,
+  )
+})
+
+test('manual close and timeout each allow a teacher to reopen a private, clean second shift', () => {
+  for (const timed of [false, true]) {
+    const r = setup(2),
+      [a, b] = r.players,
+      token = a.token,
+      host = r.host
+    r.revenue = 95
+    a.stats.cooking = 7
+    b.stats.hints = 3
+    a.ready = true
+    a.cargo = true
+    a.view = { draft: 'first shift' }
+    disconnect(r, b)
+    if (timed) {
+      r.t = r.limit - 0.1
+      tick(r, 0.2)
+    } else command(r, null, { op: 'end' })
+    assert.throws(() => command(r, a, { op: 'reopen' }))
+    command(r, null, { op: 'reopen' })
+    assert.equal(r.round, 2)
+    assert.equal(r.host, host)
+    assert.equal(a.token, token)
+    assert.equal(r.status, 'lobby')
+    assert.equal(a.ready, false)
+    assert.equal(a.cargo, false)
+    assert.equal(a.stats.cooking, 0)
+    assert.equal(r.revenue, 0)
+    assert.equal(b.online, false)
+    const archived = snapshot(r, a).lastReport
+    assert.equal(archived.revenue, 95)
+    assert.equal(archived.players[0].stats.cooking, 7)
+    assert.deepEqual(
+      archived.players.map((p) => p.id),
+      [a.id],
+    )
+    assert.equal(snapshot(r, null).lastReport.players.length, 2)
+    assert.throws(() => command(r, null, { op: 'reopen' }))
+    reconnect(r, b)
+    command(r, null, { op: 'start' })
+    assert.equal(r.status, 'playing')
+    assert.ok(r.orders.length)
+    assert.equal(snapshot(r, b).lastReport, undefined)
+  }
 })

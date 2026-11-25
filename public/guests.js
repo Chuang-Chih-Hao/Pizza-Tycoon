@@ -60,3 +60,57 @@ export function guestLine(order, mood) {
     '請給我一份' + pizza + '，謝謝！',
   ][voice]
 }
+
+// The wall opening, landing and routes share the same world coordinates.
+export const guestDoor = {
+  wallX: -6,
+  nearZ: 2.34,
+  farZ: 4.73,
+  streetX: -7.68,
+  inZ: 3.54,
+  outZ: 4.23,
+  sidewalkStartZ: 2.86,
+}
+export const queueX = (slot) => -2.32 - 0.79 * slot
+
+function follow(points, distance) {
+  for (let i = 1; i < points.length; i++) {
+    const [x, z] = points[i - 1],
+      dx = points[i][0] - x,
+      dz = points[i][1] - z
+    const len = Math.hypot(dx, dz)
+    if (len && distance < len)
+      return {
+        x: x + (dx * distance) / len,
+        z: z + (dz * distance) / len,
+        heading: Math.atan2(dx, dz),
+        walking: true,
+      }
+    distance -= len
+  }
+  const [x, z] = points.at(-1)
+  return { x, z, heading: 0.46, walking: false }
+}
+export function arrivalPose(slot, age) {
+  const d = guestDoor
+  return follow(
+    [
+      [d.streetX, d.sidewalkStartZ],
+      [d.streetX, d.inZ],
+      [queueX(slot), d.inZ],
+    ],
+    Math.max(0, age) * 1.62,
+  )
+}
+export function departurePose(from, age) {
+  const d = guestDoor
+  if (age < 1.1) return { ...from, heading: 0.46, walking: false }
+  return follow(
+    [
+      [from.x, from.z],
+      [from.x, d.outZ],
+      [d.streetX, d.outZ],
+    ],
+    Math.max(0, age - 1.1) * 1.64,
+  )
+}

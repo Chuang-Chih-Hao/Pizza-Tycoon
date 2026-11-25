@@ -11,6 +11,7 @@ export function drawDial(
     gold = 0,
     raw = false,
     knife = null,
+    target = null,
   } = {},
 ) {
   const ctx = canvas.getContext('2d'),
@@ -107,6 +108,20 @@ export function drawDial(
       ctx.font = 'bold 15px sans-serif'
       ctx.fillText(deg + '°', x + 48 * Math.cos((a + b) / 2), y + 48 * Math.sin((a + b) / 2))
     }
+  }
+  if (Number.isFinite(target)) {
+    const end = a + (target * Math.PI) / 180
+    ctx.save()
+    ctx.strokeStyle = '#1b608c'
+    ctx.lineWidth = 4
+    ctx.setLineDash([7, 5])
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + (rad + 7) * Math.cos(end), y + (rad + 7) * Math.sin(end))
+    ctx.stroke()
+    ctx.setLineDash([])
+    circle(x + (rad + 8) * Math.cos(end), y + (rad + 8) * Math.sin(end), 4, '#1b608c')
+    ctx.restore()
   }
   if (knife !== null) {
     const u = Math.min(1, knife * 1.75)

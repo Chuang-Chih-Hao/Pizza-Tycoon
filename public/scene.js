@@ -1,4 +1,12 @@
-import { guestLine, moodOf, guestLabels } from './guests.js'
+import {
+  guestLine,
+  moodOf,
+  guestLabels,
+  guestDoor,
+  queueX,
+  arrivalPose,
+  departurePose,
+} from './guests.js'
 import { EventEffects } from './eventfx.js'
 import * as T from 'three'
 import {
@@ -81,6 +89,7 @@ export class Kitchen {
     this.items = new Map()
     this.tags = new Map()
     this.effects = []
+    this.transfers = []
     this.customers = new Map()
     this.zoom = 1
     this.low = false
@@ -248,31 +257,39 @@ export class Kitchen {
     crowd.forEach((guest, index) => {
       const exit = guest.outcome
       const slot = exit ? guest.position : index
-      const place = -3.2 - slot * 0.79
+      const age = preview ? 20 : clock - (guest.entryAt ?? guest.born ?? 0)
+      const arriving = arrivalPose(slot, age)
       let c = this.customers.get(guest.id)
       if (!c) {
         c = chef(Math.abs(guest.id + 3) % 6, true)
         this.customers.set(guest.id, c)
         this.world.add(c.g)
         c.g.scale.setScalar(0.82)
-        c.g.position.set(exit ? place : -6.45, 0, 3.6)
+        c.g.position.set(exit ? queueX(slot) : arriving.x, 0, exit ? guestDoor.inZ : arriving.z)
       }
       const mood = exit || (preview ? 'eager' : moodOf(guest, clock, state.upgrades))
       c.g.userData.key = exit || preview ? '' : 'customer'
       c.g.userData.data = { order: guest.id }
+      c.g.visible = !!exit || age >= 0
       let walking
       if (exit) {
-        c.exitFrom ??= c.g.position.x
-        const leave = Math.min(1, Math.max(0, (clock - guest.t - 1.7) / 4))
-        c.g.position.x = c.exitFrom + (-7.65 - c.exitFrom) * leave
-        c.g.position.z = 3.6 + leave * 0.55
-        c.g.rotation.y = leave > 0 ? -1.36 : 0.46
-        walking = leave > 0
+        c.exitFrom ??= { x: c.g.position.x, z: c.g.position.z }
+        const pose = departurePose(c.exitFrom, clock - guest.t)
+        c.g.position.set(pose.x, 0, pose.z)
+        c.g.rotation.y = pose.heading
+        walking = pose.walking
       } else {
-        const step = state?.status === 'paused' ? 0 : dt
-        c.g.position.x += (place - c.g.position.x) * (1 - Math.exp(-step * 2))
-        walking = Math.abs(c.g.position.x - place) > 0.1
-        c.g.rotation.y = walking ? 1.42 : 0.46
+        const step = preview || state.status === 'playing' ? dt * 2.3 : 0
+        const dx = arriving.x - c.g.position.x,
+          dz = arriving.z - c.g.position.z
+        const length = Math.hypot(dx, dz)
+        const distance = Math.min(length, step)
+        if (length > 0.0001) {
+          c.g.position.x += (dx / length) * distance
+          c.g.position.z += (dz / length) * distance
+        }
+        walking = arriving.walking || length > 0.05
+        c.g.rotation.y = length > 0.02 ? Math.atan2(dx, dz) : arriving.heading
       }
       if (exit === 'paid' && !c.parcel) {
         c.parcel = batch(itemModel('boxed'))
@@ -281,7 +298,10 @@ export class Kitchen {
         c.body.add(c.parcel)
       }
       animateGuest(c, time, mood, walking, guest.id)
-      if (!preview && speaker === guest) this.speak(guest, mood, c.g.position)
+      if (!preview && speaker === guest) {
+        this.bubble.hidden = !c.g.visible
+        if (c.g.visible) this.speak(guest, mood, c.g.position)
+      }
     })
     for (const [id, c] of this.customers) {
       if (crowd.some((o) => o.id === id)) continue
@@ -304,11 +324,33 @@ export class Kitchen {
     return entry.g
   }
   sync(state, id, goal) {
+    if (state && this.s && state.round !== this.s.round) {
+      this.lastFx = 0
+      this.listenUntil = 0
+      this.sceneClock = 0
+      for (const { g } of [...this.customers.values(), ...this.transfers, ...this.effects])
+        disposeGroup(g)
+      this.customers.clear()
+      this.effects = []
+      this.transfers = []
+    }
     this.s = state
     this.me = id
     this.goal = goal
   }
   spawnFx(ev) {
+    const pass = ev.transfer
+    if (pass?.from && pass.to && pass.item) {
+      const g = batch(itemModel(pass.item))
+      g.scale.setScalar(0.55)
+      this.world.add(g)
+      this.transfers.push({
+        g,
+        from: new T.Vector3(pass.from.x, pass.from.y, pass.from.z),
+        to: new T.Vector3(pass.to.x, pass.to.y, pass.to.z),
+        age: 0,
+      })
+    }
     const station = stations[ev.where] || stations.serve
     const a = this.actors.get(ev.who)
     const pos = a?.g.position ?? station
@@ -374,7 +416,8 @@ export class Kitchen {
   }
   frame(ms) {
     requestAnimationFrame(this.frame)
-    if (document.hidden || this.host.offsetWidth === 0 || ms - this.last < (this.low ? 50 : 32))
+    const interval = document.querySelector('dialog[open]') ? 140 : this.low ? 50 : 32
+    if (document.hidden || this.host.offsetWidth === 0 || ms - this.last < interval)
       return
     const dt = Math.min(0.12, (ms - this.last) / 1000)
     this.last = ms
@@ -637,6 +680,17 @@ export class Kitchen {
           this.spawnFx(ev)
           this.lastFx = ev.id
         }
+    for (const item of [...this.transfers]) {
+      item.age += dt
+      const u = Math.min(1, item.age / 0.42)
+      item.g.position.lerpVectors(item.from, item.to, u)
+      item.g.position.y += Math.sin(u * Math.PI) * 0.38
+      item.g.rotation.z = Math.sin(u * Math.PI) * 0.17
+      if (u === 1) {
+        disposeGroup(item.g)
+        this.transfers.splice(this.transfers.indexOf(item), 1)
+      }
+    }
     for (const e of [...this.effects]) {
       e.age += dt
       const u = e.age / 1.3

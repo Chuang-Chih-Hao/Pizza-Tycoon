@@ -1,3 +1,4 @@
+import { activitySeed, flourTarget } from '../public/activities.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
@@ -93,14 +94,12 @@ test('teacher + four independent WebSockets share movement, race-safe items, pau
       }),
   )
   const same = randomUUID()
+  const inputs = [Math.round(flourTarget(activitySeed(state.orders[0], null, null)) / 0.062)]
   for (const c of crew.slice(0, 2))
     c.send('flour', {
       order,
       nonce: same,
-      trace: [
-        [0.19, 0.56],
-        [0.79, 0.56],
-      ],
+      inputs,
     })
   const won = (
     await crew[3].wait(
@@ -112,10 +111,7 @@ test('teacher + four independent WebSockets share movement, race-safe items, pau
   owner.send('flour', {
     order,
     nonce: same,
-    trace: [
-      [0.19, 0.56],
-      [0.79, 0.56],
-    ],
+    inputs,
   })
   owner.ws.terminate()
   const lost = (

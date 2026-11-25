@@ -36,12 +36,7 @@ function pie(c, x, y, r, cheese = true) {
     circle(c, x + Math.cos(a) * s, y + Math.sin(a) * s, r * 0.087, i % 3 ? '#bd543b' : '#658458')
   }
 }
-function crate(c, x, y) {
-  rect(c, x - 25, y - 17, 50, 38, '#966a41')
-  for (const d of [-11, 0, 11]) rect(c, x - 25, y + d, 50, 5, '#e2b579')
-  for (const d of [-17, 17]) rect(c, x + d, y - 17, 4, 36, '#b18152')
-}
-function tool(c, key, x, y, t, progress, item) {
+function tool(c, key, x, y) {
   c.save()
   c.translate(x, y)
   const icon = motions[key][2]
@@ -58,46 +53,18 @@ function tool(c, key, x, y, t, progress, item) {
     )
     rect(c, -24, -12, 48, 24, '#bc8456', 10)
     rect(c, -20, -9, 39, 6, '#e3b782', 4)
-  } else if (icon === 'scoop') {
+  } else if (icon === 'peel') {
+    rect(c, -30, 1, 60, 13, '#b0b9aa')
     line(
       c,
       [
-        [-27, 12],
-        [9, -6],
+        [-23, 4],
+        [-55, 17],
       ],
-      '#78553b',
+      '#906139',
       7,
     )
-    circle(c, 12, -6, 13, '#a5b4a9')
-    circle(c, 12, -8, 10, '#fbebc7')
-  } else if (icon === 'kit' || icon === 'crate') {
-    crate(c, 0, 0)
-    if (icon === 'kit')
-      for (let i = 0; i < 4; i++)
-        circle(
-          c,
-          -15 + i * 10,
-          -13 + (i % 2) * 4,
-          7,
-          ['#b74b34', '#63834e', '#d8a041', '#f0d79e'][i],
-        )
-  } else if (icon === 'tray' || icon === 'peel') {
-    rect(c, -30, 1, 60, 13, '#b0b9aa')
-    if (icon === 'peel')
-      line(
-        c,
-        [
-          [-23, 4],
-          [-55, 17],
-        ],
-        '#906139',
-        7,
-      )
-    if (item === 'boxed') crate(c, 0, -2)
-    else if (item === 'flour') {
-      rect(c, -11, -21, 23, 26, '#e8d1a3')
-      rect(c, -11, -21, 23, 5, '#b38b61')
-    } else pie(c, 0, -4, 20, !['base', 'flour'].includes(item))
+    pie(c, 0, -4, 20, true)
   } else if (icon === 'topping') {
     line(
       c,
@@ -137,92 +104,10 @@ function tool(c, key, x, y, t, progress, item) {
     circle(c, 0, 0, 13, '#80968f')
     circle(c, 0, 0, 9, '#bdc9bd')
     circle(c, 0, 0, 3, '#53675a')
-  } else if (icon === 'fold' || icon === 'serve') {
+  } else if (icon === 'fold') {
     rect(c, -26, -16, 52, 35, '#ad8256')
     rect(c, -26, -19, 52, 32, '#e9c996')
     circle(c, 0, -4, 8, '#bc5338')
-  } else if (icon === 'net') {
-    line(
-      c,
-      [
-        [-27, 26],
-        [0, 0],
-      ],
-      '#a6764c',
-      6,
-    )
-    circle(c, 0, 0, 18, '#e1e7cc')
-    for (let i = -1; i <= 1; i++) {
-      line(
-        c,
-        [
-          [i * 7 - 6, -10],
-          [i * 7 + 6, 10],
-        ],
-        '#92a698',
-        1.5,
-      )
-      line(
-        c,
-        [
-          [i * 7 + 6, -10],
-          [i * 7 - 6, 10],
-        ],
-        '#92a698',
-        1.5,
-      )
-    }
-  } else if (icon === 'mop') {
-    line(
-      c,
-      [
-        [-24, -24],
-        [0, 2],
-      ],
-      '#ae865f',
-      7,
-    )
-    rect(c, -14, 0, 35, 9, '#789c91')
-    for (let i = 0; i < 7; i++)
-      line(
-        c,
-        [
-          [-13 + i * 5, 9],
-          [-15 + i * 5, 16 + Math.sin(t + i) * 3],
-        ],
-        '#e1e5cc',
-        3,
-      )
-  } else if (icon === 'wire') {
-    line(
-      c,
-      [
-        [-26, 19],
-        [-10, 6],
-        [4, 1],
-      ],
-      '#ae4e39',
-      6,
-    )
-    rect(c, 1, -8, 17, 15, '#52685b')
-    line(
-      c,
-      [
-        [17, -4],
-        [25, -4],
-      ],
-      '#c0a66b',
-      3,
-    )
-    line(
-      c,
-      [
-        [17, 3],
-        [25, 3],
-      ],
-      '#c0a66b',
-      3,
-    )
   }
   c.restore()
 }
@@ -237,11 +122,7 @@ export function paintMotion(canvas, key, options = {}, state = {}) {
     pts = path.map(xy)
   c.save()
   c.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0)
-  const theme =
-    { mouse: '#e1dcc1', leak: '#c9e1df', repair: '#d8dbce', duel: '#efdab1', delivery: '#d7e0c9' }[
-      key
-    ] || '#e9d6b2'
-  rect(c, 0, 0, W, H, theme, 14)
+  rect(c, 0, 0, W, H, '#e9d6b2', 14)
   for (let i = 0; i < 5; i++)
     line(
       c,
@@ -326,35 +207,6 @@ export function paintMotion(canvas, key, options = {}, state = {}) {
       rect(c, 204, 87, 113, 83 * limit, '#e2bd89')
     }
   }
-  if (icon === 'mop')
-    for (let i = 0; i < 6; i++) {
-      c.save()
-      c.translate(105 + i * 51, 125 + Math.sin(i) * 18)
-      c.scale(1, 0.4)
-      circle(c, 0, 0, Math.max(5, 35 - n * 6), '#80bcc4')
-      c.restore()
-    }
-  if (icon === 'wire') {
-    rect(c, 43, 59, 440, 152, '#506456')
-    for (let i = 0; i < 3; i++) {
-      circle(c, 391, 84 + i * 42, 13, ['#b75743', '#dfb449', '#81a17c'][i])
-      circle(c, 391, 84 + i * 42, 5, '#38483e')
-    }
-  }
-  if (icon === 'crate') {
-    rect(c, 344, 142, 96, 18, '#7b8b7a')
-    for (const x of [362, 422]) circle(c, x, 168, 8, '#605f51')
-  }
-  if (icon === 'net') {
-    c.save()
-    c.translate(257 + Math.sin(t * 3) * 14, 143 + Math.cos(t * 3) * 6)
-    c.scale(1, 0.7)
-    circle(c, 0, 0, 17, '#82796a')
-    circle(c, 17, -2, 10, '#958a79')
-    circle(c, 15, -10, 5, '#c99f92')
-    circle(c, 22, -4, 2, '#342e27')
-    c.restore()
-  }
   c.setLineDash([5, 8])
   line(c, pts, '#5d745b8c', 3)
   c.setLineDash([])
@@ -370,7 +222,7 @@ export function paintMotion(canvas, key, options = {}, state = {}) {
     )
     circle(c, x, y, 4, i < n ? '#f3f2cd' : '#856c45')
   }
-  tool(c, key, ...xy(pointer), t, n, options.item)
+  tool(c, key, ...xy(pointer))
   c.restore()
 }
 export function startMotion(canvas, key, options, change, done) {
@@ -403,7 +255,11 @@ export function startMotion(canvas, key, options, change, done) {
       trace.push(p.slice())
   }
   function begin(p) {
-    if (finished || !hit(p, path[0])) return
+    if (finished) return
+    if (!hit(p, path[0])) {
+      if (key === 'cut') change(status, '請從披薩正中央開始落刀。')
+      return
+    }
     trace.length = 0
     status.step = 0
     held = true
@@ -422,7 +278,12 @@ export function startMotion(canvas, key, options, change, done) {
     } else {
       status.step = 0
       status.pointer = path[0].slice()
-      change(status, '沿著光點順序完成，再放開工具。')
+      change(
+        status,
+        key === 'cut'
+          ? '這一刀還沒切到底。按住圓心，沿刀線推到外圈亮點再放開。'
+          : '沿著光點順序完成，再放開工具。',
+      )
     }
   }
   const pos = (e) => {

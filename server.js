@@ -1,3 +1,5 @@
+import { handoffs } from './public/activities.js'
+import { stations } from './public/world.js'
 import http from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +20,8 @@ const allowed = new Set([
   'index.html',
   'brigade.js',
   'gestures.js',
+  'activities.js',
+  'arcade.js',
   'guests.js',
   'operation.js',
   'eventfx.js',
@@ -47,7 +51,7 @@ export function makeServer() {
     }
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, version: '1.3.0' }))
+      res.end(JSON.stringify({ ok: true, version: '1.4.0' }))
       return
     }
     const name = path === '/' ? 'index.html' : path.slice(1)
@@ -137,14 +141,26 @@ export function makeServer() {
           throw Error('請先進入房間。')
         }
         const { r, p } = v
+        if (m.round != null && m.round !== r.round) return
         const seen = p ? p.inputs : (r.hostInputs ??= new Set())
         if (typeof m.nonce !== 'string' || seen.has(m.nonce)) return
         seen.add(m.nonce)
         if (seen.size > 512) seen.delete(seen.values().next().value)
+        let transfer
+        if (p && Object.hasOwn(handoffs, m.op)) {
+          const o = r.orders.find((o) => o.id === (m.order ?? p.hand?.id))
+          const item = m.op === 'pickup' && m.value === 'kit' ? o?.kit : o?.item
+          const source = stations[item?.loc] || (item?.loc === 'floor' ? item : null)
+          transfer = {
+            item: p.hand?.type || item?.type,
+            from: source && { x: source.x, z: source.z, y: item.loc === 'floor' ? 0.13 : 1 },
+          }
+        }
         const result = command(r, p, m)
         if (
           p &&
           [
+            'serve',
             'place',
             'knead',
             'top',
@@ -158,7 +174,23 @@ export function makeServer() {
             'drop',
           ].includes(m.op)
         ) {
-          r.feedback.push({ id: ++r.feedbackId, type: m.op, t: r.t, who: p.id })
+          if (transfer?.item) {
+            const hand = {
+              x: p.x + 0.28 * Math.sin(p.heading),
+              z: p.z + 0.28 * Math.cos(p.heading),
+              y: 0.77,
+            }
+            const o = r.orders.find((o) => o.id === m.order)
+            const dest =
+              stations[m.op === 'serve' ? 'serve' : m.op === 'addkit' ? 'top' : o?.item.loc]
+            const surface = dest ? { x: dest.x, z: dest.z, y: 1.02 } : { x: p.x, z: p.z, y: 0.12 }
+            if (m.op === 'pickup') transfer.to = hand
+            else {
+              transfer.from = hand
+              transfer.to = surface
+            }
+          }
+          r.feedback.push({ id: ++r.feedbackId, type: m.op, t: r.t, who: p.id, transfer })
           if (r.feedback.length > 8) r.feedback.shift()
         }
         if (p && !['view', 'move', 'walk', 'study'].includes(m.op))

@@ -18,7 +18,7 @@
       </div>
       <div class="topright">
         <span id="net"><i></i>連線中</span
-        ><button id="sound" class="quiet" aria-label="音效與畫質設定">設定</button>
+        ><button class="howto" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="sound" class="quiet" aria-label="音效與畫質設定">設定</button>
       </div>
     </header>
     <main id="home">
@@ -73,6 +73,7 @@
         <div class="roomcode" id="roomcode"></div>
         <div id="roster"></div>
         <div id="lobbycontrols"></div>
+        <button id="lastreport" data-cmd="previous" hidden>查看上一輪成果</button>
       </div>
     </main>
     <main id="play" hidden>
@@ -101,13 +102,13 @@
           <div id="banner"></div>
           <div class="mission">
             <div><small id="held">手持物品</small><strong id="mission"></strong></div>
-            <button class="primary" id="go">前往工作區</button
+            <div id="afteractions" hidden></div><button class="primary" id="go">前往工作區</button
             ><button id="drop" hidden>放下 Q</button>
           </div>
         </section>
       </div>
       <div class="lower">
-        <span>WASD / 方向鍵移動　·　Shift 加速　·　E 操作　·　Q 放下</span>
+        <div class="keystrip" id="keystrip" aria-label="走道快捷鍵"><span><kbd>WASD</kbd>／<kbd>↑↓←→</kbd> 移動</span><span><kbd>E</kbd> 操作</span><span><kbd>Q</kbd> 放下</span><span class="sprint"><kbd>Shift</kbd> 加速</span></div>
         <div>
           <button id="mytask" hidden>我的數學任務</button
           ><button id="eventgo" hidden>處理事件</button><button id="shopgo">設備目錄</button
@@ -117,10 +118,21 @@
     </main>
     <dialog id="dialog">
       <div class="modalhead">
-        <span id="eyebrow">GOLDEN SLICE</span><button id="close" aria-label="關閉">×</button>
+        <span id="eyebrow">GOLDEN SLICE</span><button class="howto dialoghelp" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="close" aria-label="關閉">×</button>
       </div>
       <div id="coachnote" class="passnote" role="status" hidden></div>
       <div id="modal"></div>
+    </dialog>
+    <dialog id="guide" aria-labelledby="guidetitle">
+      <div class="modalhead"><h2 id="guidetitle">操作說明</h2><button id="guideclose" aria-label="關閉操作說明">×</button></div>
+      <div id="guidecurrent" class="guidecurrent"></div>
+      <dl class="keylist">
+        <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵</dt><dd>在廚房走動。按住 <kbd>Shift</kbd> 加速。</dd>
+        <dt><kbd>E</kbd> 或 <kbd>空白鍵</kbd></dt><dd>靠近後操作設備。也可以點設備或「前往工作區」自動走過去。</dd>
+        <dt><kbd>Q</kbd></dt><dd>把手上的物品放在腳邊，讓隊友拾取。</dd>
+        <dt><kbd>?</kbd> ／ <kbd>Esc</kbd></dt><dd>開啟操作說明／關閉目前視窗。</dd>
+      </dl>
+      <button class="primary" id="guidereturn">回到剛才的畫面</button>
     </dialog>
     <div id="toast" role="status"></div>
     <script type="module" src="/app.js"></script>

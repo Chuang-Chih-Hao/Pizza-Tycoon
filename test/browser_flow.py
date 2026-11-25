@@ -58,9 +58,25 @@ def run(url, output):
 
         def operate(action):
             command(action).click()
+            key = action.split(":")[0]
+            if key in ["pickup","place","addkit","serve","drop"]:
+                return
             canvas = page.locator("#gesture")
             canvas.wait_for()
             key = action.split(":")[0]
+            if key in ["flour","kit"]:
+                seed=(order["id"]*7+order["flavor"]*3+order["kits"]) % 997
+                if key=="flour":
+                    canvas.focus()
+                    target=75+seed%5*10
+                    page.keyboard.down("Space")
+                    page.wait_for_function("n=> +document.querySelector('#gesture').dataset.reading >= n",arg=target-3,polling="raf")
+                    page.keyboard.up("Space")
+                else:
+                    for i in [seed%3,(seed+1+(seed//3)%2)%3]:
+                        canvas.press(str(i+1))
+                canvas.wait_for(state="hidden")
+                return
             options = {"angle": angle, "rotation": order["rotation"]}
             points = page.evaluate("""async ([key, options]) => {
                 const {gesturePath} = await import('/gestures.js')
@@ -140,8 +156,14 @@ def run(url, output):
         operate("unbake")
         work("place")
         command("ans:圓心").click()
-        page.locator("#degrees").fill(str(angle))
+        page.locator("#degrees").fill(str(angle-15))
+        command("cut").click()
+        page.locator("#cutreview",has_text="順時針轉 15°").wait_for()
         screenshot("cutting.webp")
+        page.locator("#degrees").fill(str(angle+10))
+        page.locator("#cutreview",has_text="逆時針轉 10°").wait_for()
+        page.locator("#degrees").fill(str(angle))
+        page.locator("#cutreview",has_text="刀線已對準").wait_for()
         operate("cut")
         operate("pickup")
         work("box")
@@ -177,8 +199,32 @@ def run(url, output):
         page.wait_for_timeout(500)
         screenshot("rescue.webp")
         send(teacher, "end")
-        page.locator("#results").click()
         page.get_by_role("heading", name="本店營業成果").wait_for()
+        page.locator('#modal [data-cmd="practice"]').click()
+        page.get_by_role("heading",name="打烊練刀").wait_for()
+        target = page.locator('#modal p strong').inner_text().split()[0]
+        a, b = map(int, target.split("/"))
+        page.locator("#practiceangle").fill("1")
+        page.locator("#practicecheck").click()
+        assert "順時針" in page.locator("#practicefeedback").inner_text()
+        page.locator("#practiceangle").fill(str(360*a//b))
+        page.locator("#practicecheck").click()
+        page.get_by_role("button",name="下一片").click()
+        page.locator(".dialoghelp").click()
+        page.get_by_role("heading",name="操作說明").wait_for()
+        page.keyboard.press("Escape")
+        assert page.locator("#practiceangle").is_visible()
+        send(teacher, "reopen")
+        page.locator("#ready").wait_for()
+        assert page.locator("#roomcode").inner_text()==code
+        page.locator("#lastreport").click()
+        page.get_by_role("heading",name="上一輪營業成果").wait_for()
+        send(teacher, "start")
+        page.locator("#go").wait_for()
+        assert not page.locator("#dialog").is_visible()
+        page.keyboard.press("?")
+        page.locator("#guideclose").click()
+        send(teacher, "end")
         assert not errors, errors
         print("Passed: cooking, cutting, payment, four chefs, golden order and results.")
 
