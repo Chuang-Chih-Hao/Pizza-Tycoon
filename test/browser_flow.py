@@ -157,7 +157,19 @@ def run(url, output):
         work("pickup")
         work("place")
         operate(f'top:{order["flavor"]}')
+        # Hold one outgoing pickup so the next click has to wait for the new destination.
+        page.evaluate("""() => {
+          const send = WebSocket.prototype.send;
+          WebSocket.prototype.send = function(data) {
+            if (JSON.parse(data).op !== 'pickup') return send.call(this, data);
+            WebSocket.prototype.send = send;
+            window.finishTestPickup = () => send.call(this, data);
+          };
+        }""")
         work("pickup")
+        assert page.locator("#go").is_disabled()
+        assert "正在托起" in page.locator("#mission").inner_text()
+        page.evaluate("window.finishTestPickup()")
         work("bake")
         operate("unbake")
         work("place")

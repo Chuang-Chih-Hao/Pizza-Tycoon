@@ -50,6 +50,7 @@ let socket,
   nextVisit = null,
   mouseSpot = null,
   pendingEntry = null,
+  pendingHandoff = null,
   walkKeys = new Set(),
   actionMemory = {},
   lastNews = 0,
@@ -78,10 +79,13 @@ function liveQuestion(o, p) {
 function openMotion(op, data = {}) {
   const o = state.orders.find((v) => v.id === data.order),
     kind = op === 'event' ? state.event?.kind : op
-  if (state.status !== 'playing') return
+  if (state.status !== 'playing' || pendingHandoff) return
   if (handoffs[op]) {
+    if (socket?.readyState !== 1) return toast('正在重新連線，請稍候。')
+    pendingHandoff = { op, acknowledged: false }
     if (['pickup', 'drop', 'addkit', 'serve'].includes(op) && dlg.open) close()
     send(op, data)
+    render()
     return
   }
   const arcade = activities[kind]
@@ -364,9 +368,15 @@ function connect() {
     }
     if (m.type === 'state') {
       state = m.state
+      if (pendingHandoff?.acknowledged) pendingHandoff = null
+      if (motion?.acknowledged) afterMotion(true)
       render()
     }
     if (m.type === 'error') {
+      if (pendingHandoff?.op === m.op) {
+        pendingHandoff = null
+        render()
+      }
       if (dialogMode === 'motion' && motion?.pending) afterMotion(false)
       if (m.op === 'restore') {
         if (sessionStorage.getItem('pizza-exiting')) {
@@ -386,7 +396,9 @@ function connect() {
     }
     if (m.type === 'ack') {
       if (handoffs[m.op]) audio.play('place')
-      if (dialogMode === 'motion' && motion?.pending && motionReturn?.op === m.op) afterMotion(true)
+      if (pendingHandoff?.op === m.op) pendingHandoff.acknowledged = true
+      if (dialogMode === 'motion' && motion?.pending && motionReturn?.op === m.op)
+        motion.acknowledged = true
       if (m.help) {
         feedback = m.help
         showFeedback()
@@ -425,6 +437,9 @@ function connect() {
     }
   }
   socket.onclose = (e) => {
+    pendingHandoff = null
+    if (motion?.pending) afterMotion(false)
+    if (state) render()
     $('net').textContent = '重新連線中'
     if (e.code === 4001) {
       $('net').textContent = '房間已在另一個視窗開啟'
@@ -751,6 +766,7 @@ function render() {
   $('results').hidden = state.status !== 'ended'
   $('drop').hidden = !p?.hand || state.status !== 'playing'
   $('go').hidden = !p || !goal || state.status !== 'playing'
+  $('go').disabled = !!pendingHandoff
   if (goal)
     $('go').textContent =
       (stations[goal] && near(p, stations[goal]) ? '打開' : '前往') + destinationName(goal)
@@ -774,7 +790,9 @@ function render() {
       : '本輪已結算。可以練刀，或等老師開下一輪。'
     : state.status === 'paused'
       ? '老師已暫停營業，繼續後會顯示你的下一步。'
-      : taskText(instruction)
+      : pendingHandoff
+        ? '正在' + handoffs[pendingHandoff.op] + '，完成後會顯示下一步。'
+        : taskText(instruction)
   $('taskreason').textContent =
     !ended && state.status === 'playing' ? instruction.waiting || '' : ''
   const key =
@@ -970,7 +988,7 @@ $('minus').onclick = () => {
 }
 function look() {
   const p = me()
-  if (!p) return
+  if (!p || pendingHandoff) return
   const { key: t, order: id } = nextStep(state, order(), p)
   if (stations[t] && near(p, stations[t])) {
     if (id && id !== selected) focusOrder(id)
