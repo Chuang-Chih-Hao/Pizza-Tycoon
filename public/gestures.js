@@ -3,8 +3,16 @@ const left = [0.19, 0.56],
   right = [0.79, 0.56],
   mid = [0.5, 0.55]
 const transfer = [left, right]
+export const kneadStrokes = 9
+const rollingPath = Array.from({ length: kneadStrokes + 1 }, (_, i) => (i % 2 ? right : left))
+export const rolledCount = (step) => Math.max(0, Math.min(kneadStrokes, step - 1))
 export const motions = {
-  knead: ['往返擀麵', '按住擀麵棍，沿麵團推過去再拉回來。', 'roll', [left, right, left]],
+  knead: [
+    '連續擀麵',
+    '從左端握住擀麵棍，向亮點左右來回。每推到另一端算一下，第九下自動完成。',
+    'roll',
+    rollingPath,
+  ],
   top: [
     '鋪上配料',
     '夾起配料，經過兩個落點鋪上餅皮。',

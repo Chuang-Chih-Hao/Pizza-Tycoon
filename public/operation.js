@@ -1,4 +1,4 @@
-import { motions, gesturePath, checkTrace } from './gestures.js'
+import { kneadStrokes, rolledCount, motions, gesturePath, checkTrace } from './gestures.js'
 const W = 520,
   H = 268
 const circle = (c, x, y, r, color) => {
@@ -140,8 +140,8 @@ export function paintMotion(canvas, key, options = {}, state = {}) {
     c.save()
     c.translate(x, y)
     if (icon === 'roll') {
-      const squash = 0.93 + 0.16 * Math.abs(pointer[0] - 0.18)
-      c.scale(squash, 1.04 - 0.12 * n)
+      const spread = rolledCount(state.step || 0) / kneadStrokes
+      c.scale(0.74 + 0.49 * spread + 0.09 * Math.abs(pointer[0] - 0.18), 0.7 + 0.31 * spread)
     }
     pie(c, 0, 0, icon === 'wheel' ? 90 : 67, icon !== 'roll' && icon !== 'topping')
     c.restore()
@@ -208,11 +208,11 @@ export function paintMotion(canvas, key, options = {}, state = {}) {
     }
   }
   c.setLineDash([5, 8])
-  line(c, pts, '#5d745b8c', 3)
+  line(c, icon === 'roll' ? pts.slice(0, 2) : pts, '#5d745b8c', 3)
   c.setLineDash([])
-  for (let i = 0; i < pts.length; i++) {
+  for (let i = 0; i < (icon === 'roll' ? 2 : pts.length); i++) {
     const [x, y] = pts[i]
-    const active = i === n
+    const active = i === (icon === 'roll' ? n % 2 : n)
     circle(
       c,
       x,
@@ -248,6 +248,12 @@ export function startMotion(canvas, key, options, change, done) {
       trace.push(p.slice())
       status.step++
       change(status)
+      if (key === 'knead' && status.step === path.length) {
+        held = false
+        finished = true
+        cancelAnimationFrame(frame)
+        done(trace)
+      }
     } else if (
       trace.length < 130 &&
       (!trace.length || Math.hypot(p[0] - trace.at(-1)[0], p[1] - trace.at(-1)[1]) > 0.065)
@@ -256,7 +262,16 @@ export function startMotion(canvas, key, options, change, done) {
   }
   function begin(p) {
     if (finished) return
+    if (key === 'knead' && status.step > 0) {
+      if (!hit(p, status.pointer)) {
+        change(status, '從擀麵棍的位置繼續推向亮點。')
+        return
+      }
+      held = true
+      return
+    }
     if (!hit(p, path[0])) {
+      if (key === 'knead') change(status, '先握住左端的擀麵棍。')
       if (key === 'cut') change(status, '請從披薩正中央開始落刀。')
       return
     }
@@ -269,6 +284,10 @@ export function startMotion(canvas, key, options, change, done) {
     if (!held) return
     point(p)
     held = false
+    if (key === 'knead') {
+      if (!finished) change(status, '已保留次數，重新握住棍子繼續擀。')
+      return
+    }
     trace.push(p.slice())
     if (status.step === path.length && checkTrace(key, trace, options)) {
       finished = true
@@ -302,8 +321,10 @@ export function startMotion(canvas, key, options, change, done) {
   canvas.onpointerup = (e) => end(pos(e))
   canvas.onpointercancel = () => {
     held = false
-    status.step = 0
-    status.pointer = path[0].slice()
+    if (key !== 'knead') {
+      status.step = 0
+      status.pointer = path[0].slice()
+    }
     change(status)
   }
   canvas.onkeydown = (e) => {
@@ -317,9 +338,9 @@ export function startMotion(canvas, key, options, change, done) {
       e.preventDefault()
       if (!e.repeat) {
         if (held) end(status.pointer)
-        else begin(path[0])
+        else begin(key === 'knead' ? status.pointer : path[0])
       }
-    } else if (dirs[e.key]) {
+    } else if (dirs[e.key] && held) {
       e.preventDefault()
       const d = dirs[e.key]
       point([clamp(status.pointer[0] + d[0]), clamp(status.pointer[1] + d[1])])

@@ -1135,3 +1135,17 @@ kbd {
   .keylist dt { border:0; padding-bottom:0; }
   .keylist dd { padding-top:.3em; }
 }
+
+.nextlabel { font-size:.78em; background:#355747; color:#fff9e7; border-radius:4px; padding:2px 5px; white-space:nowrap; }
+.stepnote { background:#eaf1df; border-left:3px solid #678c62; padding:7px 10px; }
+#taskreason:empty,#exitstatus:empty { display:none; }
+.modalhead .exitgame,.topright .exitgame { color:#803d2e; font-size:13px; border:1px solid #bfa38b; background:#fff6e9; padding:5px 8px; white-space:nowrap; }
+.modalhead .exitgame {margin-left:auto;}
+.modalhead .exitgame:not([hidden])+.dialoghelp {margin-left:6px;}
+#returnhost {margin: .65rem 0;}
+@media(max-width:640px){
+.in-kitchen .topright {gap:4px;}
+.in-kitchen header {padding-inline:6px;}
+.in-kitchen .topright button {padding:4px 6px;font-size:11px;}
+.in-kitchen .brand small,.in-kitchen .topright kbd {display:none;}
+}

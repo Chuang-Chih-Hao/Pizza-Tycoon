@@ -347,9 +347,8 @@ export function itemModel(type, o = {}) {
   }
   const g = group()
   if (type === 'dough') {
-    const presses = Math.min(3, o.press || 0),
-      radius = 0.37 + presses * 0.09,
-      height = 0.21 - presses * 0.045
+    const radius = 0.37,
+      height = 0.21
     ball(g, 0, height * 0.65, 0, radius, height, radius * 0.94, '#edcf9b')
     for (let i = 0; i < 9; i++) {
       const a = i * 2.4

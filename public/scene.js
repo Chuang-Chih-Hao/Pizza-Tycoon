@@ -417,8 +417,7 @@ export class Kitchen {
   frame(ms) {
     requestAnimationFrame(this.frame)
     const interval = document.querySelector('dialog[open]') ? 140 : this.low ? 50 : 32
-    if (document.hidden || this.host.offsetWidth === 0 || ms - this.last < interval)
-      return
+    if (document.hidden || this.host.offsetWidth === 0 || ms - this.last < interval) return
     const dt = Math.min(0.12, (ms - this.last) / 1000)
     this.last = ms
     const t = ms / 1000
@@ -546,19 +545,15 @@ export class Kitchen {
                 : item.type
           const g = this.placed(
             o.id + '-' + (item === o.kit ? 'kit' : 'main'),
-            [
-              appearance,
-              o.press,
-              o.r,
-              o.flavor,
-              o.cuts.length,
-              o.ingredientsPlaced,
-              ovenReady,
-            ].join(),
+            [appearance, o.r, o.flavor, o.cuts.length, o.ingredientsPlaced, ovenReady].join(),
             () => itemModel(appearance, o),
             pt,
-            item.loc === 'oven' ? 0.52 : o.stage === 1 ? 0.46 + o.press * 0.09 : 0.62,
+            item.loc === 'oven' ? 0.52 : o.stage === 1 ? 0.46 : 0.62,
           )
+          if (appearance === 'dough') {
+            const roll = (o.rolling || 0) / 9
+            g.scale.set(0.46 + 0.24 * roll, 0.46 - 0.21 * roll, 0.46 + 0.24 * roll)
+          }
           g.userData.key = item.loc === 'floor' ? 'dropItem' : item.loc
           g.userData.data = { order: o.id, kit: item === o.kit, x: pt.x, z: pt.z }
           if (item.loc === 'floor')

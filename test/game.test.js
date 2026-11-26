@@ -1,3 +1,4 @@
+import { nextStep } from '../public/next-step.js'
 import {
   activities,
   activitySeed,
@@ -29,6 +30,7 @@ import {
   command,
   tick,
   disconnect,
+  leaveStudent,
   reconnect,
   snapshot,
   newOrder,
@@ -96,7 +98,7 @@ function serve(r, o) {
   walk(r, a, stations.dough)
   act(r, a, o, 'place')
   tasks(r, o, 'dough')
-  for (let i = 0; i < 3; i++) act(r, a, o, 'knead', { radius: o.r })
+  act(r, a, o, 'knead', { radius: o.r })
   for (let i = 0; i < o.kitNeed; i++) {
     walk(r, b, stations.fridge)
     act(r, b, o, 'kit')
@@ -573,4 +575,66 @@ test('a chef who reached the mouse can read the instructions, but must chase aga
       inputs: activityInputs('mouse', activitySeed(null, e, p)),
     }),
   )
+})
+
+test('one nine-stroke roll produces a base; a shorter trace cannot advance the order', () => {
+  const r = setup(1),
+    p = r.players[0],
+    o = r.orders[0]
+  walk(r, p, stations.pantry)
+  act(r, p, o, 'flour')
+  walk(r, p, stations.dough)
+  act(r, p, o, 'place')
+  const trace = gesturePath('knead')
+  assert.equal(trace.length, 10)
+  assert.throws(() =>
+    command(r, p, { op: 'knead', order: o.id, radius: o.r, trace: trace.slice(0, 9) }),
+  )
+  assert.equal(o.stage, 1)
+  act(r, p, o, 'knead', { radius: o.r })
+  assert.equal(o.stage, 2)
+  assert.equal(o.item.type, 'base')
+  assert.throws(() => act(r, p, o, 'knead', { radius: o.r }))
+})
+
+test('four starting jobs, a handoff and waiting instructions point to the relevant action', () => {
+  const r = setup(4),
+    o = r.orders[0],
+    crew = r.players
+  assert.deepEqual(
+    crew.map((p) => nextStep(r, o, p).key),
+    ['pantry', 'fridge', 'oven', 'cut'],
+  )
+  o.item = { type: 'flour', loc: crew[0].id }
+  o.stage = 1
+  crew[0].hand = { id: o.id, type: 'flour' }
+  const step = nextStep(r, r.orders[1], crew[0])
+  assert.equal(step.order, o.id)
+  assert.equal(step.key, 'dough')
+  assert.match(step.text, /放上工作桌/)
+  o.stage = 4
+  o.item = { type: 'raw', loc: 'oven' }
+  o.bakeStart = r.t
+  o.duration = 8
+  crew[0].hand = null
+  const alternative = nextStep(r, o, crew[0])
+  assert.match(alternative.waiting, /8 秒/)
+  assert.notEqual(alternative.order, o.id)
+  assert.ok(alternative.key)
+})
+
+test('a departing chef leaves carried food, transfers tasks and opens the same seat', () => {
+  const r = setup(4)
+  const departing = r.players[1]
+  const order = r.orders[0]
+  order.tasks[0].owner = departing.id
+  walk(r, departing, stations.pantry)
+  act(r, departing, order, 'flour')
+  leaveStudent(r, departing)
+  assert.equal(order.item.loc, 'floor')
+  assert.ok(!r.players.includes(departing))
+  assert.ok(r.players.some((p) => p.id === order.tasks[0].owner))
+  assert.ok(snapshot(r, null).formerPlayers[0].stats.cooking > 0)
+  assert.equal(snapshot(r, r.players[0]).formerPlayers, undefined)
+  assert.equal(addPlayer(r, '替補', 0).lane, departing.lane)
 })

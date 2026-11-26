@@ -10,9 +10,17 @@ import {
   eventPoint,
   holdingMouse,
 } from './world.js'
+import { nextStep, destinationName } from './next-step.js'
 import { guestLabels, guestLine, moodOf, patienceLeft } from './guests.js'
-import { eligible, roleFor, roleNames, craftLabels, availableMath } from './brigade.js'
-import { motions, gesturePath, motionOptions, cutAdvice } from './gestures.js'
+import { eligible, availableMath } from './brigade.js'
+import {
+  kneadStrokes,
+  rolledCount,
+  motions,
+  gesturePath,
+  motionOptions,
+  cutAdvice,
+} from './gestures.js'
 import { activities, activitySeed, handoffs } from './activities.js'
 import { startActivity, paintActivity, activityProgress } from './arcade.js'
 import { startMotion, paintMotion } from './operation.js'
@@ -62,9 +70,6 @@ const multi = () => state?.players.filter((p) => p.online).length > 1
 function canLead(o, p, k) {
   return eligible(o, state.players, k).some((c) => c.id === p.id)
 }
-function stageLead(o) {
-  return { 1: 'knead', 2: 'top', 3: 'bake', 5: 'cut' }[o.stage]
-}
 function liveQuestion(o, p) {
   return o?.tasks.find(
     (q) => q.station === bench && q.owner === p?.id && availableMath(o, q, multi()),
@@ -81,6 +86,12 @@ function openMotion(op, data = {}) {
   }
   const arcade = activities[kind]
   if (!arcade && !motions[kind]) return
+  if (kind === 'knead' && data.radius !== o.r) {
+    feedback = '先把餅皮半徑從 ' + data.radius + ' 公分調到訂單指定的 ' + o.r + ' 公分。'
+    showFeedback()
+    $('radius')?.focus({ preventScroll: true })
+    return
+  }
   if (kind === 'cut') {
     const advice = cutAdvice(o, data.value)
     if (advice) {
@@ -135,7 +146,9 @@ function openMotion(op, data = {}) {
     motion.pointer = st.pointer
     $('gesturestep').textContent = arcade
       ? activityProgress(kind, opt, st)
-      : Math.min(st.step, gesturePath(kind, opt).length) + ' / ' + gesturePath(kind, opt).length
+      : kind === 'knead'
+        ? '已擀 ' + rolledCount(st.step) + ' / ' + kneadStrokes + ' 下'
+        : Math.min(st.step, gesturePath(kind, opt).length) + ' / ' + gesturePath(kind, opt).length
     if (msg !== undefined) {
       feedback = msg
       showFeedback()
@@ -156,7 +169,7 @@ function openMotion(op, data = {}) {
         opt,
         progress,
         complete,
-        () => state?.status === 'playing' && !$('guide').open,
+        () => state?.status === 'playing' && !$('guide').open && !$('exitprompt').open,
         () => audio.play('place'),
       )
     : startMotion($('gesture'), kind, opt, progress, complete)
@@ -311,7 +324,7 @@ dlg.addEventListener('click', (e) => {
 })
 function send(op, extra = {}) {
   if (socket?.readyState !== 1) {
-    if (['join', 'create'].includes(op) && !identity) {
+    if (['join', 'create', 'restore'].includes(op) && !identity) {
       pendingEntry = { op, extra }
       toast('正在連線，連上後會自動進入準備室。')
     } else if (op !== 'move') toast('正在重新連線，請稍候。')
@@ -339,10 +352,15 @@ function connect() {
   }
   socket.onmessage = (e) => {
     const m = JSON.parse(e.data)
+    if (m.type === 'left') {
+      finishLeaving()
+      return
+    }
     if (m.type === 'session') {
       identity = { id: m.id, code: m.code, token: m.token }
       sessionStorage.setItem('golden-room', JSON.stringify(identity))
       if (['join', 'host'].includes(dialogMode)) close()
+      if (sessionStorage.getItem('pizza-exiting') === m.code) send('leave')
     }
     if (m.type === 'state') {
       state = m.state
@@ -351,6 +369,11 @@ function connect() {
     if (m.type === 'error') {
       if (dialogMode === 'motion' && motion?.pending) afterMotion(false)
       if (m.op === 'restore') {
+        if (sessionStorage.getItem('pizza-exiting')) {
+          finishLeaving()
+          return
+        }
+        sessionStorage.removeItem('pizza-host-return')
         sessionStorage.removeItem('golden-room')
         identity = null
         state = null
@@ -409,6 +432,39 @@ function connect() {
     }
     setTimeout(connect, Math.min(5000, 600 * 2 ** retry++))
   }
+}
+function askExit() {
+  if (!identity || $('exitprompt').open) return
+  $('exitdetails').textContent = host()
+    ? '學生可以繼續玩。你可以從本分頁首頁回到老師房間 ' + identity.code + '。'
+    : '離開會空出廚師名額，手中的食材會放在地上。已完成的學習紀錄會保留給老師。'
+  $('exitstatus').textContent = ''
+  if (walkKeys.size) {
+    walkKeys.clear()
+    if (me() && state.status === 'playing') sendMovement()
+  }
+  $('exitprompt').showModal()
+}
+function finishLeaving() {
+  if (identity?.id === 'host') sessionStorage.setItem('pizza-host-return', JSON.stringify(identity))
+  sessionStorage.removeItem('pizza-exiting')
+  sessionStorage.removeItem('golden-room')
+  location.reload()
+}
+document.querySelectorAll('[data-exit]').forEach((b) => (b.onclick = askExit))
+$('exitcancel').onclick = () => $('exitprompt').close()
+$('exitprompt').addEventListener('cancel', (e) => {
+  if ($('exitconfirm').disabled) e.preventDefault()
+})
+$('exitconfirm').onclick = () => {
+  sessionStorage.setItem('pizza-exiting', identity.code)
+  $('exitconfirm').disabled = $('exitcancel').disabled = true
+  $('exitstatus').textContent = socket?.readyState === 1 ? '正在離開房間…' : '等待重新連線後離開…'
+  if (socket?.readyState === 1) send('leave')
+}
+$('returnhost').onclick = () => {
+  const saved = JSON.parse(sessionStorage.getItem('pizza-host-return') || 'null')
+  if (saved) send('restore', saved)
 }
 function showFeedback() {
   queueMicrotask(viewNow)
@@ -587,91 +643,24 @@ function knownTerms(o) {
 }
 function learningGoal(o, p) {
   if (!o || !p) return null
-  const station = stationFor[o.stage]
   return o.tasks.find((q) => q.owner === p.id && availableMath(o, q, multi()))
 }
-function targetFor(o, p) {
-  if (!o || !p) return null
-  const st = stationFor[o.stage],
-    held = p.hand
-  if (p.cargo) return 'fridge'
-  if (held) {
-    const itemOrder = state.orders.find((v) => v.id === held.id)
-    return held.type === 'kit' ? 'top' : stationFor[itemOrder?.stage ?? 0]
-  }
-  const role = roleFor(o, state.players, p.id)
-  if (multi() && o.stage <= 2) {
-    if (role === 1 && o.kits < o.kitNeed && !o.kit) return 'fridge'
-    if (role === 2 && !o.preheated) return 'oven'
-  }
-  const task = learningGoal(o, p)
-  if (task) return task.station
-  if (o.stage === 3 && multi() && !o.preheated) return 'oven'
-  if (o.stage === 0) return 'pantry'
-  if (
-    o.stage <= 2 &&
-    o.kits < o.kitNeed &&
-    !o.kit &&
-    o.item.loc !== st &&
-    (!stations[o.item.loc] || (o.stage === 2 && o.kits === 0))
+function taskText(step) {
+  return (
+    (step.order ? '#' + step.order + ' · ' : '') +
+    (step.key ? destinationName(step.key) + '｜' : '') +
+    step.text
   )
-    return 'fridge'
-  if (o.stage === 2 && !o.kit && o.kits < o.kitNeed && multi() && role === 1) return 'fridge'
-  if (o.stage === 2 && o.item.loc === 'top' && o.kits < o.kitNeed)
-    return o.kit?.loc === 'floor' ? 'floorKit' : o.kit ? 'top' : 'fridge'
-  if (o.item.loc === 'floor') return 'floorItem'
-  if (stations[o.item.loc] && o.item.loc !== st) return o.item.loc
-  return st
-}
-function mission(o, p) {
-  if (!o) return '等待下一位顧客進店。'
-  if (!p) return '點選左側訂單查看全班合作進度。'
-  const t = targetFor(o, p),
-    q = learningGoal(o, p)
-  if (p.cargo) return '搬著補貨箱到冰箱旁，按「處理事件」完成配送。'
-  if (t === 'oven' && !o.preheated && o.stage <= 3 && multi() && !p.hand)
-    return '石窯可提前點火。轉動溫控鈕，為隊友預熱。'
-  const lead = stageLead(o)
-  if (lead && multi() && !canLead(o, p, lead) && !p.hand && !q && t === stationFor[o.stage])
-    return (
-      '輪到 ' +
-      eligible(o, state.players, lead)
-        .map((c) => c.name)
-        .join('、') +
-      ' ' +
-      craftLabels[lead] +
-      '。可支援搬運或選另一張訂單。'
-    )
-  if (q && t === q.station && !p.hand)
-    return '輪到你了！到' + stations[q.station].name + '完成「' + skillName[q.kind] + '」。'
-  if (p.hand)
-    return (
-      '將 #' +
-      p.hand.id +
-      ' ' +
-      itemNames[p.hand.type] +
-      '送到' +
-      (stations[t]?.name || '工作桌') +
-      '。'
-    )
-  if (t === 'fridge')
-    return '到冰箱領取 #' + o.id + ' 的配料籃（已送 ' + o.kits + '/' + o.kitNeed + '）。'
-  if (t === 'floorItem' || t === 'floorKit') return '拾起地上的物品，繼續這張訂單。'
-  if (o.stage === 4)
-    return state.t - o.bakeStart >= o.duration
-      ? '披薩烤好了！到石窯取出。'
-      : '爐火已點燃。可以先幫其他訂單備料。'
-  if (stations[o.item.loc] && o.item.loc !== stationFor[o.stage] && o.stage > 0)
-    return '到' + stations[o.item.loc].name + '取走 #' + o.id + ' ' + itemNames[o.item.type] + '。'
-  if (o.item.loc === p.id || stations[o.item.loc])
-    return '到' + (stations[t]?.name ?? '工作區') + '，' + stages[o.stage] + '。'
-  return '隊友正在搬運主餐。可準備配料，或支援其他訂單。'
 }
 function render() {
   const inRoom = !!(identity && state),
     lobby = inRoom && state.status === 'lobby',
     play = inRoom && !lobby
   document.documentElement.classList.toggle('in-kitchen', play)
+  $('exitgame').hidden = $('exitmodal').hidden = !inRoom
+  const savedHost = JSON.parse(sessionStorage.getItem('pizza-host-return') || 'null')
+  $('returnhost').hidden = inRoom || !savedHost
+  if (savedHost) $('returnhost').textContent = '回到老師房間 ' + savedHost.code
   $('home').hidden = inRoom
   $('lobby').hidden = !lobby
   $('play').hidden = !play
@@ -706,6 +695,11 @@ function render() {
     }
     $('lastreport').hidden = !state.lastReport
     $('roomcode').textContent = state.code
+    $('lobbyhint').textContent = host()
+      ? '把下方房號分享給學生。至少一位學生加入後，按「開始營業」。'
+      : me()?.ready
+        ? '你已準備好，等老師按「開始營業」。'
+        : '按「我準備好了」，然後等老師開始營業。'
     const key = JSON.stringify(state.players.map((p) => [p.name, p.ready, p.online]))
     if (key !== rosterKey) {
       $('roster').innerHTML = roster()
@@ -734,7 +728,8 @@ function render() {
   }
   const o = order(),
     p = me(),
-    goal = targetFor(o, p)
+    instruction = nextStep(state, o, p),
+    goal = instruction.key
   kitchen?.setHost($('gameScene'))
   kitchen?.sync(state, identity.id, stations[goal] ? goal : null)
   audio.active = state.status === 'playing'
@@ -755,7 +750,10 @@ function render() {
   $('teacherpanel').hidden = !host() || state.status === 'ended'
   $('results').hidden = state.status !== 'ended'
   $('drop').hidden = !p?.hand || state.status !== 'playing'
-  $('go').hidden = !p || !o || state.status !== 'playing'
+  $('go').hidden = !p || !goal || state.status !== 'playing'
+  if (goal)
+    $('go').textContent =
+      (stations[goal] && near(p, stations[goal]) ? '打開' : '前往') + destinationName(goal)
   $('shopgo').hidden = !p || state.status !== 'playing'
   $('eventgo').hidden = !state.event || !p || state.status !== 'playing'
   $('held').textContent = p
@@ -774,18 +772,14 @@ function render() {
     ? host()
       ? '本輪已結算。可保留原班與房號再開一輪。'
       : '本輪已結算。可以練刀，或等老師開下一輪。'
-    : mission(o, p)
+    : state.status === 'paused'
+      ? '老師已暫停營業，繼續後會顯示你的下一步。'
+      : taskText(instruction)
+  $('taskreason').textContent =
+    !ended && state.status === 'playing' ? instruction.waiting || '' : ''
   const key =
     state.orders
-      .map((o) => [
-        o.id,
-        o.stage,
-        o.press,
-        o.kits,
-        o.gold,
-        o.label,
-        o.tasks.filter((q) => q.done).length,
-      ])
+      .map((o) => [o.id, o.stage, o.kits, o.gold, o.label, o.tasks.filter((q) => q.done).length])
       .join('|') +
     '-' +
     selected
@@ -946,11 +940,11 @@ function gotoEvent() {
     )
 }
 $('go').onclick = () => {
-  let p = me()
-  if (p?.hand && p.hand.id !== selected) focusOrder(p.hand.id)
-  const t = targetFor(order(), p)
-  if (t?.startsWith('floor')) gotoFloor(t === 'floorKit')
-  else if (t) pickWorld(t)
+  const step = nextStep(state, order(), me())
+  if (!step.key) return
+  if (step.order && step.order !== selected) focusOrder(step.order)
+  if (step.key.startsWith('floor')) gotoFloor(step.key === 'floorKit')
+  else pickWorld(step.key)
 }
 $('mytask').onclick = () => {
   const v = state.orders.find((o) => learningGoal(o, me()))
@@ -977,8 +971,11 @@ $('minus').onclick = () => {
 function look() {
   const p = me()
   if (!p) return
-  const t = targetFor(order(), p)
-  if (stations[t] && near(p, stations[t])) return openStation(t)
+  const { key: t, order: id } = nextStep(state, order(), p)
+  if (stations[t] && near(p, stations[t])) {
+    if (id && id !== selected) focusOrder(id)
+    return openStation(t)
+  }
   if (state.event && near(p, eventPoint(state.event, state.t, me()))) return eventPanel(true)
   const closest = Object.entries(stations)
     .filter(([, s]) => near(p, s))
@@ -986,8 +983,8 @@ function look() {
       (a, b) => Math.hypot(p.x - a[1].x, p.z - a[1].z) - Math.hypot(p.x - b[1].x, p.z - b[1].z),
     )[0]
   if (closest) return openStation(closest[0])
-  if (t?.startsWith('floor')) return gotoFloor(t === 'floorKit')
-  toast('先靠近設備，或按「前往工作區」。')
+  if (t?.startsWith('floor')) return $('go').click()
+  toast('先靠近設備，或按下方的目的地按鈕。')
 }
 const moving = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift']
 function sendMovement() {
@@ -1011,7 +1008,7 @@ window.addEventListener('keydown', (e) => {
     else openGuide()
     return
   }
-  if ($('guide').open) return
+  if ($('guide').open || $('exitprompt').open) return
   if (!me() || state.status !== 'playing' || e.target.matches('input,select,textarea')) return
   const k = e.key.toLowerCase()
   if (dlg.open) {
@@ -1152,11 +1149,15 @@ function refreshBench() {
   if (!p || !stations[bench]) return
   const q = liveQuestion(o, p)
   const beat = o?.stage === 4 ? state.t - o.bakeStart : 0
+  const step = nextStep(state, o, p)
+  const transfer = step.key && (step.key !== bench || step.order !== o?.id)
   const deps = [
+    step.key,
+    step.order,
+    step.text.replace(/烤箱還要 \d+ 秒/, '烘烤中'),
     bench,
     selected,
     o?.stage,
-    o?.press,
     o?.kits,
     o?.item.loc,
     o?.kit?.loc,
@@ -1181,6 +1182,7 @@ function refreshBench() {
   ]
   const key = deps.join('~')
   if (panelKey === key) {
+    if ($('steptip')) $('steptip').textContent = taskText(step)
     if ($('bakeprog')) {
       $('bakeprog').value = beat
       $('baketime').textContent = ovenLabel(o)
@@ -1225,6 +1227,10 @@ function refreshBench() {
     const next = stationFor[o.stage],
       here = o.item.loc === bench,
       held = p.hand?.id === o.id ? p.hand.type : null
+    body +=
+      '<p class="stepnote"><b>你的下一步</b> <span id="steptip">' +
+      esc(taskText(step)) +
+      '</span></p>'
     if (q) body += taskUI(q)
     const others = o.tasks.filter(
       (t) => !t.done && t.station === bench && t.owner !== p.id && next === bench,
@@ -1243,25 +1249,6 @@ function refreshBench() {
           .join('、') +
         '</p>'
     let ops = []
-    if (multi()) {
-      const lead = stageLead(o)
-      body +=
-        '<div class="passnote">本單開店分工 · ' +
-        roleNames[roleFor(o, state.players, p.id)] +
-        '。' +
-        (lead
-          ? '當前可接棒：' +
-            esc(
-              eligible(o, state.players, lead)
-                .map((c) => c.name)
-                .join('、'),
-            ) +
-            '（' +
-            craftLabels[lead] +
-            '）'
-          : '可自由支援搬運、備料與預熱。') +
-        '</div>'
-    }
     if (bench === 'oven' && o.stage <= 3 && !o.preheated)
       ops.push(btn('轉動溫控鈕預熱', 'preheat', true))
     if (bench === 'oven' && held === 'raw' && !canLead(o, p, 'bake'))
@@ -1309,12 +1296,12 @@ function refreshBench() {
           o.r +
           ' 公分</b>' +
           dial +
-          '<label>餅皮半徑<input id="radius" type="range" min="4" max="14" step="1" value="' +
+          '<label>餅皮半徑 <output for="radius" id="radiusvalue">' +
           (memory.radius ?? 6) +
-          '"></label><div class="dim">揉麵進度 ' +
-          o.press +
-          ' / 3</div></div>'
-        ops.push(btn('按壓揉麵', 'knead', true))
+          ' 公分</output><input id="radius" type="range" min="4" max="14" step="1" value="' +
+          (memory.radius ?? 6) +
+          '"></label></div>'
+        ops.push(btn('開始擀麵 · 連續九下', 'knead', true))
       }
       if (bench === 'top' && canLead(o, p, 'top') && o.stage === 2 && here && o.kits >= o.kitNeed) {
         const flavor = o.gold ? o.goldFlavors[o.ingredients.length] : o.flavor
@@ -1369,7 +1356,16 @@ function refreshBench() {
     if (bench === 'serve' && o.stage === 7 && held === 'boxed')
       ops.push(btn('交付 #' + o.id + ' 給' + o.customer, 'serve', true))
     body += '<div class="tools">' + ops.join('') + '</div>'
-    if (!ops.length && !q) body += '<p>' + esc(mission(o, p)) + '</p>'
+    if (transfer && state.status === 'playing')
+      body +=
+        '<div class="tools">' +
+        btn(
+          (step.order !== o.id && step.order ? '切換到 #' + step.order + ' · ' : '') +
+            '前往' +
+            destinationName(step.key),
+          'nextstation',
+        ) +
+        '</div>'
     body += inspector(o)
   }
   body += '<p id="feedback" class="feedback"></p>'
@@ -1429,6 +1425,7 @@ function refreshBench() {
       }
     if ($('radius'))
       $('radius').oninput = (e) => {
+        $('radiusvalue').textContent = e.target.value + ' 公分'
         memory.radius = e.target.value
         opts.r = +e.target.value
         drawDial(c, opts)
@@ -1576,7 +1573,9 @@ function updateAdmin() {
           '工具進度',
           activities[v.tool]
             ? activities[v.tool][0]
-            : motions[v.tool][0] + ' · ' + v.step + '/' + gesturePath(v.tool).length,
+            : v.tool === 'knead'
+              ? '連續擀麵 · ' + rolledCount(v.step) + ' / 9 下'
+              : motions[v.tool][0] + ' · ' + v.step + '/' + gesturePath(v.tool).length,
         )
       : '') +
     (v.controls ? row('可用操作', v.controls) : '') +
@@ -1732,7 +1731,9 @@ function practice() {
 function report(previous = false) {
   const data = previous ? state.lastReport : state
   if (!data) return
-  const list = host() ? data.players : data.players.filter((p) => p.id === identity.id)
+  const list = host()
+    ? [...data.players, ...(data.formerPlayers || [])]
+    : data.players.filter((p) => p.id === identity.id)
   show(
     'report',
     'SERVICE REPORT',
@@ -1824,7 +1825,7 @@ function csv(data = state) {
   const rows = [
     ['廚師', '題型', '已作答', '首次正確', '完成', '答錯次數', '提示', '料理貢獻', '事件貢獻'],
   ]
-  for (const p of data.players)
+  for (const p of [...data.players, ...(data.formerPlayers || [])])
     for (const [k, n] of Object.entries(skillName)) {
       const a = p.stats.types[k] || {}
       rows.push([
@@ -1923,11 +1924,8 @@ document.addEventListener('click', (e) => {
   if (c === 'report') return report()
   if (c === 'csv') return csv()
   if (c === 'close') return close()
-  if (c === 'leave') {
-    sessionStorage.removeItem('golden-room')
-    location.reload()
-    return
-  }
+  if (c === 'nextstation') return $('go').click()
+  if (c === 'leave') return askExit()
   if (c === 'mute') {
     audio.set('music', 0)
     audio.set('fx', 0)

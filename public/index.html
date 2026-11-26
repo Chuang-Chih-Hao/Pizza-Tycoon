@@ -18,7 +18,7 @@
       </div>
       <div class="topright">
         <span id="net"><i></i>連線中</span
-        ><button class="howto" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="sound" class="quiet" aria-label="音效與畫質設定">設定</button>
+        ><button class="howto" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="sound" class="quiet" aria-label="音效與畫質設定">設定</button><button id="exitgame" class="exitgame" data-exit hidden>離開遊戲</button>
       </div>
     </header>
     <main id="home">
@@ -31,6 +31,7 @@
             <button class="primary" id="student">學生加入 <b>↗</b></button
             ><button id="teacher">老師開店</button>
           </div>
+          <button id="returnhost" hidden></button>
           <small class="meta">1–4 位廚師 <i></i> 30 分鐘 <i></i> 六年級扇形</small>
         </div>
         <div class="showcase">
@@ -69,7 +70,7 @@
       <div class="lobbycard">
         <div class="wordmark">GOLDEN SLICE PIZZERIA</div>
         <h1>開店準備</h1>
-        <p>把房間代碼交給一起上課的廚師。</p>
+        <p id="lobbyhint"></p>
         <div class="roomcode" id="roomcode"></div>
         <div id="roster"></div>
         <div id="lobbycontrols"></div>
@@ -101,8 +102,8 @@
           </div>
           <div id="banner"></div>
           <div class="mission">
-            <div><small id="held">手持物品</small><strong id="mission"></strong></div>
-            <div id="afteractions" hidden></div><button class="primary" id="go">前往工作區</button
+            <div><small id="held">手持物品</small><strong><span class="nextlabel">下一步</span> <span id="mission"></span></strong><small id="taskreason"></small></div>
+            <div id="afteractions" hidden></div><button class="primary" id="go">前往目的地</button
             ><button id="drop" hidden>放下 Q</button>
           </div>
         </section>
@@ -118,7 +119,7 @@
     </main>
     <dialog id="dialog">
       <div class="modalhead">
-        <span id="eyebrow">GOLDEN SLICE</span><button class="howto dialoghelp" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="close" aria-label="關閉">×</button>
+        <span id="eyebrow">GOLDEN SLICE</span><button id="exitmodal" class="exitgame" data-exit hidden>離開遊戲</button><button class="howto dialoghelp" data-guide aria-haspopup="dialog">操作說明 <kbd>?</kbd></button><button id="close" aria-label="關閉">×</button>
       </div>
       <div id="coachnote" class="passnote" role="status" hidden></div>
       <div id="modal"></div>
@@ -128,11 +129,17 @@
       <div id="guidecurrent" class="guidecurrent"></div>
       <dl class="keylist">
         <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵</dt><dd>在廚房走動。按住 <kbd>Shift</kbd> 加速。</dd>
-        <dt><kbd>E</kbd> 或 <kbd>空白鍵</kbd></dt><dd>靠近後操作設備。也可以點設備或「前往工作區」自動走過去。</dd>
+        <dt><kbd>E</kbd> 或 <kbd>空白鍵</kbd></dt><dd>靠近後操作設備。點設備或下方的目的地按鈕，廚師就會自動走過去。</dd>
         <dt><kbd>Q</kbd></dt><dd>把手上的物品放在腳邊，讓隊友拾取。</dd>
         <dt><kbd>?</kbd> ／ <kbd>Esc</kbd></dt><dd>開啟操作說明／關閉目前視窗。</dd>
       </dl>
       <button class="primary" id="guidereturn">回到剛才的畫面</button>
+    </dialog>
+    <dialog id="exitprompt" aria-labelledby="exittitle">
+      <h2 id="exittitle">離開這間廚房？</h2>
+      <p id="exitdetails"></p>
+      <div class="tools"><button id="exitcancel" autofocus>留在遊戲</button><button id="exitconfirm" class="primary">確認離開</button></div>
+      <p id="exitstatus" role="status"></p>
     </dialog>
     <div id="toast" role="status"></div>
     <script type="module" src="/app.js"></script>

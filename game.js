@@ -14,7 +14,7 @@ import {
 import { eligible, availableMath, roleFor } from './public/brigade.js'
 import { patienceLeft, moodOf } from './public/guests.js'
 import { activities, activitySeed, validActivity } from './public/activities.js'
-import { motions, checkTrace, motionOptions, cutAdvice } from './public/gestures.js'
+import { rolledCount, motions, checkTrace, motionOptions, cutAdvice } from './public/gestures.js'
 import { makeTask, pick, fractions, geometry, correct, guidance } from './math.js'
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 const secret = () => randomBytes(20).toString('hex')
@@ -42,6 +42,7 @@ export function room(code) {
     lastEvent: null,
     host: secret(),
     players: [],
+    formerPlayers: [],
     status: 'lobby',
     settings: { minutes: 30, difficulty: 'auto', events: true, hints: true, pace: 1 },
     t: 0,
@@ -103,14 +104,15 @@ export function addPlayer(r, name, skin) {
     .slice(0, 14)
   need(name, '請輸入暱稱。')
   need(!r.players.some((p) => p.name === name), '這個暱稱已有人使用。')
+  const lane = [0, 1, 2, 3].find((index) => !r.players.some((p) => p.lane === index))
   const p = {
     id: randomUUID(),
     token: secret(),
     name,
-    lane: r.players.length,
+    lane,
     skin: clamp(Math.floor(Number(skin) || 0), 0, 5),
     online: true,
-    ...shiftPlayer(r.players.length),
+    ...shiftPlayer(lane),
     inputs: new Set(),
   }
   r.players.push(p)
@@ -190,7 +192,6 @@ export function newOrder(r, gold = false) {
     kit: null,
     kits: 0,
     kitNeed: count(r) >= 3 ? 2 : 1,
-    press: 0,
     leads: {},
     preheated: false,
     bakeStart: null,
@@ -272,6 +273,11 @@ export function disconnect(r, p) {
   for (const o of r.orders)
     for (const q of o.tasks) if (!q.done && q.owner === p.id) q.owner = assigned(r)
   rebalance(r)
+}
+export function leaveStudent(r, p) {
+  disconnect(r, p)
+  if (r.status !== 'lobby') r.formerPlayers.push({ id: p.id, name: p.name, stats: p.stats })
+  r.players = r.players.filter((c) => c !== p)
 }
 function rebalance(r) {
   if (r.status === 'playing' || r.status === 'paused') r.goal = count(r) * 150
@@ -425,7 +431,10 @@ function reopen(r) {
     'golden',
   ])
     summary[field] = r[field]
-  summary.players = r.players.map(({ id, name, stats }) => ({ id, name, stats }))
+  summary.players = [
+    ...r.formerPlayers,
+    ...r.players.map(({ id, name, stats }) => ({ id, name, stats })),
+  ]
   const { host, players, settings, round } = r
   Object.assign(r, room(r.code), { host, players, settings, round: round + 1, lastReport: summary })
   for (const p of players) Object.assign(p, shiftPlayer(p.lane))
@@ -801,9 +810,7 @@ export function command(r, p, m) {
     need(!o.creative || o.label, '先設計本單的招牌配方。')
     need(Math.abs(Number(m.radius) - o.r) < 0.01, '調整半徑，讓餅皮符合訂單尺寸。')
     o.leads.knead = p.id
-    o.press++
-    action(p, r, '揉麵')
-    if (o.press >= 3) produce(r, p, o, 'base', 2, 'dough')
+    produce(r, p, o, 'base', 2, 'dough')
     return
   }
   if (m.op === 'top') {
@@ -954,10 +961,11 @@ export function tick(r, dt) {
   }
 }
 export function snapshot(r, viewer) {
-  const { host, seen, hostInputs, emptySince, lastReport, ...state } = r
+  const { host, seen, hostInputs, emptySince, lastReport, formerPlayers, ...state } = r
   return {
     ...state,
     phase: phase(r),
+    ...(!viewer ? { formerPlayers } : {}),
     ...(lastReport && r.status === 'lobby'
       ? {
           lastReport: {
@@ -986,6 +994,22 @@ export function snapshot(r, viewer) {
     })),
     orders: r.orders.map((o) => ({
       ...o,
+      ...(o.stage === 1 && o.item.loc === 'dough'
+        ? {
+            rolling: Math.max(
+              0,
+              ...r.players
+                .filter(
+                  (p) =>
+                    p.online &&
+                    p.view?.tool === 'knead' &&
+                    p.view.order === o.id &&
+                    near(p, stations.dough),
+                )
+                .map((p) => rolledCount(p.view.step)),
+            ),
+          }
+        : {}),
       tasks: o.tasks.map(({ answer, hint, solution, lastInput, ...q }) => ({
         ...q,
         ...(!viewer ? { lastInput } : {}),

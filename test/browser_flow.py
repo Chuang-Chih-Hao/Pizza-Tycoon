@@ -88,8 +88,14 @@ def run(url, output):
                                 bounds["y"] + bounds["height"] * point[1], steps=6)
             move(points[0])
             page.mouse.down()
-            for point in points[1:]:
+            for stroke,point in enumerate(points[1:],1):
                 move(point)
+                if key=="knead" and stroke==4:
+                    page.locator("#gesturestep",has_text="4 / 9").wait_for()
+                    page.mouse.up()
+                    assert canvas.is_visible()
+                    screenshot("kneading.webp")
+                    page.mouse.down()
             page.mouse.up()
             canvas.wait_for(state="hidden")
 
@@ -141,11 +147,11 @@ def run(url, output):
         order = state["orders"][0]
         angle = 360 * order["f"][0] // order["f"][1]
 
+        page.locator("#mission",has_text="拿取麵粉").wait_for()
         work("flour")
         work("place")
         page.locator("#radius").fill(str(order["r"]))
-        for _ in range(3):
-            operate("knead")
+        operate("knead")
         work("kit")
         work("addkit")
         work("pickup")

@@ -5,7 +5,16 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { randomInt } from 'node:crypto'
 import { WebSocketServer, WebSocket } from 'ws'
-import { room, addPlayer, command, tick, disconnect, reconnect, snapshot } from './game.js'
+import {
+  room,
+  addPlayer,
+  command,
+  tick,
+  disconnect,
+  reconnect,
+  leaveStudent,
+  snapshot,
+} from './game.js'
 const base = new URL('./public/', import.meta.url),
   vendor = new URL('./node_modules/three/', import.meta.url)
 const ext = {
@@ -19,6 +28,7 @@ const ext = {
 const allowed = new Set([
   'index.html',
   'brigade.js',
+  'next-step.js',
   'gestures.js',
   'activities.js',
   'arcade.js',
@@ -51,7 +61,7 @@ export function makeServer() {
     }
     if (path === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, version: '1.4.1' }))
+      res.end(JSON.stringify({ ok: true, version: '1.5.0' }))
       return
     }
     const name = path === '/' ? 'index.html' : path.slice(1)
@@ -141,6 +151,14 @@ export function makeServer() {
           throw Error('請先進入房間。')
         }
         const { r, p } = v
+        if (m.op === 'leave') {
+          if (p) leaveStudent(r, p)
+          peers.delete(ws)
+          if (![...peers.values()].some((other) => other.r === r)) r.emptySince = Date.now()
+          send(ws, { type: 'left' })
+          broadcast(r)
+          return
+        }
         if (m.round != null && m.round !== r.round) return
         const seen = p ? p.inputs : (r.hostInputs ??= new Set())
         if (typeof m.nonce !== 'string' || seen.has(m.nonce)) return
